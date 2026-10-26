@@ -1,3 +1,4 @@
+import { CalendarDays, ChevronRight, MapPin, Plane } from "lucide-react";
 import { useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { personById } from "../../mocks/people";
@@ -5,7 +6,8 @@ import { venueById } from "../../mocks/catalog";
 import { chatIsOpen, closesAt, DEPOSIT_INR } from "./api";
 import { closeKindly, keepChat, payDeposit, sendMessage, setAway, clearAway, submitDebrief } from "../../state/logic";
 import { useStore } from "../../state/store";
-import { Button, Card, Chip, Sheet } from "../../ui/primitives";
+import { Button, Card, Chip, Headline, Sheet } from "../../ui/primitives";
+import { samplePhoto } from "../../ui/photos";
 import { Screen } from "../../ui/shell";
 import { Portrait } from "../../ui/visuals";
 import type { Away } from "../../lib/types";
@@ -20,18 +22,23 @@ export function PlansHome() {
   const chats = state.plans.filter((plan) => chatIsOpen(plan, now) || (state.messages[plan.id]?.length ?? 0) > 0);
   const list = tab === "upcoming" ? upcoming : tab === "past" ? past : chats;
   return (
-    <Screen tab title="Plans">
-      <div className="flex gap-2">
+    <Screen tab>
+      <Headline text="Your plans" italic="plans" />
+      <p className="mt-2 text-sm text-mute">Real people. Real plans. A kinder way to meet in Hyderabad.</p>
+      <div className="mt-4 flex gap-2 rounded-full border border-line bg-card p-1">
         {(["upcoming", "chats", "past"] as const).map((item) => (
-          <Chip key={item} active={tab === item} onClick={() => setTab(item)}>
+          <Chip key={item} active={tab === item} onClick={() => setTab(item)} className="flex-1 border-0">
             {item[0].toUpperCase() + item.slice(1)}
           </Chip>
         ))}
       </div>
       {state.away ? (
-        <button type="button" onClick={() => navigate("/away")} className="mt-4 w-full rounded-3xl border border-mint/40 bg-card p-4 text-left">
-          <p className="text-sm font-semibold text-mint">Away mode is on</p>
-          <p className="text-sm text-mute">Drop is paused. Streak is frozen.</p>
+        <button type="button" onClick={() => navigate("/away")} className="mt-4 flex min-h-11 w-full items-center gap-3 rounded-3xl border border-mint/40 bg-card p-4 text-left">
+          <Plane size={18} className="text-mint" />
+          <span>
+            <span className="block text-sm font-semibold text-mint">Away mode is on</span>
+            <span className="block text-sm text-mute">Drop is paused. Streak is frozen.</span>
+          </span>
         </button>
       ) : null}
       <div className="mt-4 space-y-3">
@@ -45,18 +52,35 @@ export function PlansHome() {
           const person = personById(plan.personId);
           const venue = venueById(plan.venueId);
           return (
-            <button key={plan.id} type="button" onClick={() => navigate(tab === "chats" ? `/plans/${plan.id}/chat` : `/plans/${plan.id}`)} className="flex w-full gap-3 rounded-3xl border border-line bg-card p-3 text-left">
-              {person ? <Portrait name={person.name} palette={person.palette} className="h-20 w-16 rounded-2xl" /> : null}
-              <span>
-                <span className="block font-semibold">{person?.name ?? "Someone"}</span>
-                <span className="block text-sm text-mute">{venue.name} · {plan.slot}</span>
-                <span className="mt-1 block text-xs text-gold">{plan.deposit === "paid" ? "Deposit paid" : plan.deposit === "refunded" ? "Deposit returned" : "Deposit due"}</span>
+            <button key={plan.id} type="button" onClick={() => navigate(tab === "chats" ? `/plans/${plan.id}/chat` : `/plans/${plan.id}`)} className="flex min-h-11 w-full items-center gap-3 rounded-3xl border border-line bg-card p-3 text-left">
+              {person ? (
+                <Portrait
+                  name={person.name}
+                  palette={person.palette}
+                  src={samplePhoto(state.preview, person.id)}
+                  className="h-20 w-16 shrink-0 rounded-2xl"
+                />
+              ) : null}
+              <span className="min-w-0 flex-1">
+                <span className="block font-semibold">{plan.kind === "coffee" ? "Coffee" : plan.kind} with {person?.name.split(" ")[0] ?? "someone"}</span>
+                <span className="mt-1 flex items-center gap-1 text-sm text-mute"><CalendarDays size={14} /> {plan.slot}</span>
+                <span className="flex items-center gap-1 text-sm text-mute"><MapPin size={14} /> {venue.name}, {venue.area}</span>
+                <span className={`mt-2 inline-flex min-h-9 items-center gap-1 rounded-full px-2.5 text-xs font-semibold ${plan.deposit === "paid" ? "bg-mint/15 text-mint" : plan.deposit === "refunded" ? "bg-card2 text-mute" : "bg-gold text-ink"}`}>
+                  {plan.deposit === "paid" ? "Booked" : plan.deposit === "refunded" ? "Deposit returned" : "Deposit due"}
+                </span>
               </span>
+              <ChevronRight size={18} className="shrink-0 text-mute" />
             </button>
           );
         })}
       </div>
-      <button type="button" onClick={() => navigate("/away")} className="mt-6 text-sm font-semibold text-mute">
+      {state.tableSeat ? (
+        <Card className="mt-4">
+          <p className="font-semibold">Table of 6</p>
+          <p className="text-sm text-mute">Saturday supper · Banjara Hills · seat requested</p>
+        </Card>
+      ) : null}
+      <button type="button" onClick={() => navigate("/away")} className="mt-6 inline-flex min-h-11 items-center text-sm font-semibold text-mute">
         Going away?
       </button>
     </Screen>
@@ -73,10 +97,14 @@ export function PlanDetail() {
   if (!plan || !person || !venue) return <Screen title="Plan" back="/plans"><p>This plan has gone.</p></Screen>;
   const close = closesAt(plan);
   return (
-    <Screen title="Plan" back="/plans">
-      <Card>
+    <Screen back="/plans" tab>
+      <Headline text={`${person.name.split(" ")[0]}'s plan`} italic="plan" />
+      <Card className="mt-4">
         <p className="text-xs uppercase tracking-[0.16em] text-gold">Ticket</p>
-        <h2 className="mt-2 font-serif text-4xl">{person.name.split(" ")[0]}</h2>
+        <div className="mt-3 flex items-center gap-3">
+          <Portrait name={person.name} palette={person.palette} src={samplePhoto(state.preview, person.id)} className="h-16 w-16 rounded-2xl" />
+          <h2 className="font-serif text-4xl">{person.name.split(" ")[0]}</h2>
+        </div>
         <p className="mt-2 text-sm text-mute">{venue.name} · {venue.area}</p>
         <p className="text-sm text-mute">{plan.slot} · {plan.kind}</p>
         <p className="mt-4 text-2xl font-semibold">₹{DEPOSIT_INR}</p>
@@ -125,8 +153,13 @@ export function PlanChat() {
   const thread = state.messages[id] ?? [];
   if (!plan || !person) return <Screen title="Chat" back="/plans"><p>Chat closed.</p></Screen>;
   return (
-    <Screen title={person.name.split(" ")[0]} back={`/plans/${plan.id}`}>
-      {state.away ? <p className="mb-3 rounded-2xl bg-card px-3 py-2 text-sm text-mint">You're away. This chat stays quiet until you're back.</p> : null}
+    <Screen title={person.name.split(" ")[0]} back={`/plans/${plan.id}`} tab>
+      {state.away ? (
+        <p className="mb-3 flex items-center gap-2 rounded-2xl border border-mint/40 bg-card px-3 py-3 text-sm text-mint">
+          <Plane size={16} />
+          You're away{state.away.until ? ` until ${state.away.until}` : ""}. This chat stays quiet until you're back.
+        </p>
+      ) : null}
       {!open ? <p className="mb-3 text-sm text-mute">This chat is closed. It stays shut 48 hours after booking unless you both keep it.</p> : null}
       <div className="space-y-2">
         {thread.map((message) => (
@@ -140,7 +173,7 @@ export function PlanChat() {
           <input className="h-12 flex-1 rounded-2xl border border-line bg-card px-3" value={text} onChange={(event) => setText(event.target.value)} placeholder="A note" />
           <button
             type="button"
-            className="h-12 rounded-2xl bg-gold px-4 font-semibold text-ink"
+            className="h-12 min-h-11 rounded-2xl bg-gold px-4 font-semibold text-ink"
             onClick={() => {
               const result = sendMessage(current(), plan.id, text);
               commit(result.state);
@@ -160,8 +193,9 @@ export function PlanChat() {
           Close kindly
         </Button>
       </div>
-      <Sheet open={Boolean(warning)} title="Read this first" onClose={() => setWarning("")}>
+      <Sheet open={Boolean(warning)} title="Held for review" onClose={() => setWarning("")}>
         <p className="text-sm text-mute">{warning}</p>
+        <p className="mt-2 text-sm text-mute">It was not delivered. A person on the safety desk reads severe reports. There is nothing else to confirm.</p>
         <div className="mt-4"><Button onClick={() => setWarning("")}>Okay</Button></div>
       </Sheet>
     </Screen>
@@ -176,8 +210,8 @@ export function Debrief() {
   const [again, setAgain] = useState("Not sure");
   const [note, setNote] = useState("");
   return (
-    <Screen title="Debrief" back="/plans">
-      <h2 className="font-serif text-4xl">How was the <span className="italic text-gold">evening</span>?</h2>
+    <Screen title="Debrief" back="/plans" tab>
+      <Headline text="How was the evening?" italic="evening" />
       <p className="mt-2 text-sm text-mute">Only you can read this.</p>
       <div className="mt-4 flex flex-wrap gap-2">
         {["Calm", "Warm", "Off"].map((item) => (
@@ -205,8 +239,8 @@ export function AwayScreen() {
   const [until, setUntil] = useState(state.away?.until ?? "");
   const navigate = useNavigate();
   return (
-    <Screen title="Away" back="/plans">
-      <h2 className="font-serif text-5xl leading-none">Step <span className="italic text-gold">back</span></h2>
+    <Screen title="Away" back="/plans" tab>
+      <Headline text="Step back" italic="back" />
       <p className="mt-3 text-sm text-mute">The Drop pauses. Your streak freezes instead of breaking.</p>
       <div className="mt-5 space-y-2">
         {([
@@ -214,7 +248,7 @@ export function AwayScreen() {
           ["busy", "A busy week"],
           ["seeing", "Seeing someone"],
         ] as const).map(([id, label]) => (
-          <button key={id} type="button" onClick={() => setKind(id)} className={`w-full rounded-2xl border px-4 py-3 text-left ${kind === id ? "border-gold" : "border-line"}`}>
+          <button key={id} type="button" onClick={() => setKind(id)} className={`min-h-11 w-full rounded-2xl border px-4 py-3 text-left ${kind === id ? "border-gold bg-card2" : "border-line bg-card"}`}>
             {label}
           </button>
         ))}

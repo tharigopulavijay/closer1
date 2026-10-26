@@ -32,3 +32,9 @@ export const SAMPLE_FACES = {
   sameera,
   divya,
 };
+
+/** Sample portraits are for preview mode only. A real account never receives one. */
+export function samplePhoto(preview: boolean, id?: string) {
+  if (!preview || !id) return undefined;
+  return PERSON_PHOTOS[id];
+}

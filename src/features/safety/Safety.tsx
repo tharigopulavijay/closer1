@@ -1,3 +1,4 @@
+import { ChevronRight, Phone, Shield, Users } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { personById } from "../../mocks/people";
@@ -16,9 +17,9 @@ import {
   triggerSos,
 } from "../../state/logic";
 import { useStore } from "../../state/store";
-import { Button, Card, Chip, inputClass } from "../../ui/primitives";
+import { Button, Card, Chip, Headline, inputClass } from "../../ui/primitives";
 import { Screen } from "../../ui/shell";
-import { MapCard } from "../../ui/visuals";
+import { CityMark, MapCard } from "../../ui/visuals";
 import { escalationStage, placeCheckCall, withinGeofence } from "./api";
 
 export function SafetyHome() {
@@ -26,19 +27,27 @@ export function SafetyHome() {
   const navigate = useNavigate();
   return (
     <Screen title="Safety" back="/drop">
-      <h2 className="font-serif text-5xl leading-none">
-        A calm <span className="italic text-gold">net</span>
-      </h2>
+      <Headline text="A calm net" italic="net" />
       <p className="mt-3 text-sm text-mute">Trusted people, a check-in, and a way to reach 112. The city stays in the background.</p>
-      <div className="mt-5 space-y-3">
-        <Button onClick={() => navigate("/safety/setup")}>Trusted contacts</Button>
-        <Button variant="ghost" onClick={() => navigate("/safety/report")}>Report someone</Button>
-        <Button variant="ghost" onClick={() => navigate("/safety/strike")}>Strike notice</Button>
-      </div>
       <Card className="mt-5">
-        <p className="text-sm text-mute">{state.trusted.filter((item) => item.confirmed).length} of {state.trusted.length} contacts confirmed</p>
+        <p className="flex items-center gap-2 font-semibold"><Users size={16} className="text-mint" /> {state.trusted.filter((item) => item.confirmed).length} of {state.trusted.length} contacts confirmed</p>
         <p className="mt-1 text-sm text-mute">Check-in every {state.checkInterval} minutes</p>
       </Card>
+      <div className="mt-4 space-y-2">
+        {([
+          ["/safety/setup", "Trusted contacts", "They confirm before an alert can reach them"],
+          ["/safety/report", "Report someone", "A person reads it. Strikes are not automatic"],
+          ["/safety/strike", "Strike notice", "Appeals go to the safety desk"],
+        ] as const).map(([path, label, hint]) => (
+          <button key={path} type="button" onClick={() => navigate(path)} className="flex min-h-11 w-full items-center gap-3 rounded-3xl border border-line bg-card px-4 py-3 text-left">
+            <span className="min-w-0 flex-1">
+              <span className="block font-semibold">{label}</span>
+              <span className="block text-sm text-mute">{hint}</span>
+            </span>
+            <ChevronRight size={18} className="text-mute" />
+          </button>
+        ))}
+      </div>
     </Screen>
   );
 }
@@ -49,7 +58,8 @@ export function SafetySetup() {
   const [phone, setPhone] = useState("");
   return (
     <Screen title="Trusted people" back="/safety">
-      <p className="text-sm text-mute">Up to three. They confirm from an SMS link before they can be alerted.</p>
+      <Headline text="Who should we call?" italic="call" />
+      <p className="mt-3 text-sm text-mute">Up to three. They confirm from an SMS link before they can be alerted.</p>
       <div className="mt-4 flex gap-2">
         {([30, 60, 90] as const).map((minutes) => (
           <Chip key={minutes} active={state.checkInterval === minutes} onClick={() => commit(setCheckInterval(current(), minutes))}>
@@ -63,7 +73,7 @@ export function SafetySetup() {
             <p className="font-semibold">{contact.name}</p>
             <p className="text-sm text-mute">{contact.confirmed ? "Confirmed" : "Waiting for their yes"}</p>
             {contact.confirmed ? null : (
-              <button type="button" className="mt-2 text-sm font-semibold text-gold" onClick={() => commit(confirmTrusted(current(), contact.id))}>
+              <button type="button" className="mt-2 inline-flex min-h-11 items-center text-sm font-semibold text-gold" onClick={() => commit(confirmTrusted(current(), contact.id))}>
                 Mark confirmed (preview)
               </button>
             )}
@@ -141,11 +151,16 @@ export function DateDay() {
   }
 
   return (
-    <Screen title="Date day" back={`/plans/${plan.id}`}>
-      <h2 className="font-serif text-4xl">
-        {person.name.split(" ")[0]} at <span className="italic text-gold">{venue.name}</span>
-      </h2>
-      <div className="mt-4">
+    <Screen title="Date day" back={`/plans/${plan.id}`} tab>
+      <div className="relative mb-4 overflow-hidden rounded-[28px] border border-line bg-card">
+        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_70%_20%,rgba(159,215,199,0.18),transparent_42%),linear-gradient(180deg,#241830,#160E1F)]" />
+        <CityMark className="absolute right-3 top-3 h-14 w-20 text-mint/80" />
+        <div className="relative px-4 pb-4 pt-16">
+          <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.16em] text-mint"><Shield size={14} /> Calm check-in</p>
+          <h2 className="mt-2 font-serif text-4xl leading-none">{person.name.split(" ")[0]} at <span className="italic text-gold">{venue.name}</span></h2>
+        </div>
+      </div>
+      <div>
         <MapCard name={venue.name} area={venue.area} />
       </div>
       <div className="mt-4 space-y-3">
@@ -164,7 +179,7 @@ export function DateDay() {
         >
           I'm here
         </Button>
-        <button type="button" className="text-sm text-mute" onClick={() => setSimulate((value) => !value)}>
+        <button type="button" className="min-h-11 text-left text-sm text-mute" onClick={() => setSimulate((value) => !value)}>
           {simulate ? "Preview location: at the venue" : "Use a real fix. Preview can simulate the venue pin."}
         </button>
         <Button
@@ -174,8 +189,8 @@ export function DateDay() {
           {session?.sharing ? "Stop sharing location" : "Share live location"}
         </Button>
         {state.trusted.find((item) => item.confirmed) ? (
-          <a className="flex h-14 items-center justify-center rounded-2xl border border-line font-semibold" href={`tel:${state.trusted.find((item) => item.confirmed)?.phone}`}>
-            Call a trusted contact
+          <a className="flex h-14 min-h-11 items-center justify-center gap-2 rounded-2xl border border-line font-semibold" href={`tel:${state.trusted.find((item) => item.confirmed)?.phone}`}>
+            <Phone size={18} /> Call a trusted contact
           </a>
         ) : (
           <p className="text-sm text-mute">Add a confirmed contact before the rescue call can dial.</p>
@@ -187,9 +202,10 @@ export function DateDay() {
         onPointerDown={startHold}
         onPointerUp={cancelHold}
         onPointerLeave={cancelHold}
-        className="relative mt-6 h-16 w-full overflow-hidden rounded-2xl bg-coral font-semibold text-ink"
+        className="relative mt-6 flex h-16 min-h-11 w-full items-center justify-center gap-2 overflow-hidden rounded-2xl bg-coral font-semibold text-ink"
       >
         <span className="absolute inset-y-0 left-0 bg-ink/20" style={{ width: `${hold * 100}%` }} />
+        <Shield size={18} className="relative" />
         <span className="relative">Hold 2 seconds for SOS</span>
       </button>
       {sosNote ? <p className="mt-3 text-sm text-cream">{sosNote}</p> : null}
@@ -202,10 +218,8 @@ export function CheckInPrompt() {
   const { current, commit } = useStore();
   const navigate = useNavigate();
   return (
-    <Screen title="Check-in" back={`/safety/date/${planId}`}>
-      <h2 className="font-serif text-5xl leading-none">
-        Everything <span className="italic text-gold">okay</span>?
-      </h2>
+    <Screen title="Check-in" back={`/safety/date/${planId}`} tab>
+      <Headline text="Everything okay?" italic="okay" />
       <p className="mt-3 text-sm text-mute">No answer for 5 minutes places an automated call, then alerts your contacts and the safety desk.</p>
       <div className="mt-6 space-y-3">
         <Button onClick={() => { commit(answerCheck(current(), planId, true)); navigate(`/safety/date/${planId}`); }}>
@@ -228,6 +242,8 @@ export function ReportFlow() {
   const people = state.matches.map((id) => personById(id)?.name).filter(Boolean) as string[];
   return (
     <Screen title="Report" back="/safety">
+      <Headline text="Tell us what happened" italic="happened" />
+      <p className="mt-2 text-sm text-mute">Names stay on this form. A person reads every report.</p>
       {done ? (
         <Card>
           <p className="font-semibold">A person reads this.</p>
@@ -275,14 +291,14 @@ export function StrikeNotice() {
     <Screen title="Strike notice" back="/safety">
       {strike ? (
         <div className="space-y-4">
-          <h2 className="font-serif text-4xl">A strike was <span className="italic text-gold">confirmed</span></h2>
+          <Headline text="A strike was confirmed" italic="confirmed" />
           <p className="text-sm text-mute">{strike.category} · {new Date(strike.at).toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata" })}</p>
           <textarea className="h-28 w-full rounded-2xl border border-line bg-card p-3" value={appeal} onChange={(event) => setAppeal(event.target.value)} placeholder="Your appeal" />
           <Button onClick={() => commit(appealStrike(current(), strike.id, appeal))}>Send appeal</Button>
         </div>
       ) : (
         <Card>
-          <p className="font-semibold">You don't have a strike.</p>
+          <Headline text="No strike on this account" italic="strike" />
           <p className="mt-2 text-sm text-mute">If one is confirmed by the safety desk, it shows here with a way to appeal. Three minor strikes, or one severe confirmation, closes the account.</p>
         </Card>
       )}
