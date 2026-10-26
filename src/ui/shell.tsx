@@ -79,6 +79,15 @@ function tabIsOn(pathname: string, to: string) {
   if (to === "/drop") {
     return pathname === "/drop" || pathname === "/streak" || pathname.startsWith("/person/") || pathname.startsWith("/match/");
   }
+  if (to === "/plans") {
+    return (
+      pathname === "/plans" ||
+      pathname.startsWith("/plans/") ||
+      pathname === "/away" ||
+      pathname.startsWith("/safety/date/") ||
+      pathname.startsWith("/safety/checkin/")
+    );
+  }
   return pathname === to || pathname.startsWith(`${to}/`);
 }
 

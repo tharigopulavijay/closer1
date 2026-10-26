@@ -1,10 +1,11 @@
+import { Dice5, HelpCircle, Music, Ticket as TicketIcon, Users } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ANTAKSHARI_LETTERS, QUIZ, THIS_OR_THAT } from "../../mocks/catalog";
 import { PEOPLE, personById } from "../../mocks/people";
 import { addFriend, finishGame, likePerson } from "../../state/logic";
 import { useStore } from "../../state/store";
-import { Button, Card, Chip } from "../../ui/primitives";
+import { Button, Card, Chip, Headline } from "../../ui/primitives";
 import { Screen } from "../../ui/shell";
 import { claimOk, createCalls, createTicket, type Claim, type Ticket } from "./housie";
 import { COLOURS, botToken, createLudo, legalTokens, move, roll, seatColour, tokenCell, type LudoState } from "./ludo";
@@ -12,24 +13,25 @@ import { COLOURS, botToken, createLudo, legalTokens, move, roll, seatColour, tok
 export function PlayLobby() {
   const navigate = useNavigate();
   const games = [
-    ["/play/ludo", "Ludo", "2–4 · four colours", "128 playing"],
-    ["/play/this-or-that", "This or That", "Two people, eight prompts", "64 playing"],
-    ["/play/quiz", "Tollywood quiz", "Ten questions · a timer", "41 playing"],
-    ["/play/housie", "Housie", "One ticket, the room calls", "210 playing"],
-    ["/play/antakshari", "Antakshari", "A letter, 20 seconds, honour", "36 playing"],
+    ["/play/ludo", "Ludo", "2–4 · four colours", "128 playing", Dice5],
+    ["/play/this-or-that", "This or That", "Two people, eight prompts", "64 playing", Users],
+    ["/play/quiz", "Tollywood quiz", "Ten questions · a timer", "41 playing", HelpCircle],
+    ["/play/housie", "Housie", "One ticket, the room calls", "210 playing", TicketIcon],
+    ["/play/antakshari", "Antakshari", "A letter, 20 seconds, honour", "36 playing", Music],
   ] as const;
   return (
-    <Screen tab title="Play">
-      <h2 className="font-serif text-5xl leading-none">
-        Play, then <span className="italic text-gold">talk</span>
-      </h2>
+    <Screen tab>
+      <Headline text="Play, then talk" italic="talk" />
       <p className="mt-3 text-sm text-mute">No money on the table. A finished game can keep today's streak.</p>
       <div className="mt-5 space-y-3">
-        {games.map(([path, title, copy, count]) => (
-          <button key={path} type="button" onClick={() => navigate(path)} className="w-full rounded-3xl border border-line bg-card p-4 text-left">
-            <span className="block font-semibold">{title}</span>
-            <span className="mt-1 block text-sm text-mute">{copy}</span>
-            <span className="mt-2 block text-xs text-gold">{count}</span>
+        {games.map(([path, title, copy, count, Icon]) => (
+          <button key={path} type="button" onClick={() => navigate(path)} className="flex min-h-11 w-full items-center gap-3 rounded-3xl border border-line bg-card p-4 text-left">
+            <span className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-gold/15 text-gold"><Icon size={18} /></span>
+            <span className="min-w-0 flex-1">
+              <span className="block font-semibold">{title}</span>
+              <span className="mt-1 block text-sm text-mute">{copy}</span>
+              <span className="mt-2 block text-xs text-gold">{count}</span>
+            </span>
           </button>
         ))}
       </div>
@@ -53,7 +55,7 @@ function AfterGame({
 }) {
   return (
     <Card className="mt-4">
-      <p className="font-semibold">That's the game.</p>
+      <Headline text="That's the game" italic="game" className="!text-4xl" />
       <p className="mt-1 text-sm text-mute">Streak day is kept once, on the server, if today wasn't already counted.</p>
       <div className="mt-3 space-y-2">
         <Button variant="ghost" onClick={onFriend}>Add friend</Button>
@@ -104,8 +106,9 @@ export function LudoScreen() {
     <Screen title="Ludo" back="/play">
       <div className="grid grid-cols-4 gap-1 text-[10px]">
         {COLOURS.map((colour, index) => (
-          <span key={colour.id} className="rounded-full px-1 py-1 text-center font-semibold" style={{ background: colour.hex, color: colour.ink }}>
+          <span key={colour.id} className="flex min-h-11 flex-col items-center justify-center rounded-2xl px-1 py-1 text-center font-semibold" style={{ background: colour.hex, color: colour.ink }}>
             {names[index]}
+            <span className="block font-medium capitalize">{colour.id}</span>
           </span>
         ))}
       </div>
@@ -401,12 +404,13 @@ export function Antakshari() {
     <Screen title="Antakshari" back="/play">
       {done ? (
         <>
-          <h2 className="font-serif text-5xl">{score[0]} – {score[1]}</h2>
+          <Headline text={`${score[0]} to ${score[1]}`} italic="to" />
           <p className="mt-2 text-sm text-mute">Honour scoring. The room doesn't check the song.</p>
           {friend ? <AfterGame showLike onFriend={() => commit(addFriend(current(), friend.id))} onLike={() => commit(likePerson(current(), friend.id, "Antakshari", []).state)} /> : null}
         </>
       ) : (
         <>
+          <p className="flex items-center gap-2 text-sm text-mute"><Music size={16} className="text-gold" /> Honour round</p>
           <p className="font-serif text-7xl text-gold">{letter}</p>
           <p className="text-sm text-mute">{left}s · round {round + 1} of 4 · You {score[0]}</p>
           <input className="mt-4 h-12 w-full rounded-2xl border border-line bg-card px-3" maxLength={1} placeholder="Last letter" value={last} onChange={(event) => setLast(event.target.value)} />

@@ -1,10 +1,12 @@
+import { Coffee, Gift, Hand, Mic, Plus, Timer, Volume2, VolumeX } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { PEOPLE } from "../../mocks/people";
 import { env } from "../../lib/env";
 import { createRoom, likePerson, spendCoins } from "../../state/logic";
 import { useStore } from "../../state/store";
-import { Button, Card, Sheet, inputClass } from "../../ui/primitives";
+import { Button, Card, Headline, Sheet, inputClass } from "../../ui/primitives";
+import { SELF_PHOTOS, samplePhoto } from "../../ui/photos";
 import { Screen } from "../../ui/shell";
 import { Portrait } from "../../ui/visuals";
 
@@ -27,27 +29,33 @@ export function RoomsHome() {
   const live = state.rooms.filter((room) => room.live && !state.endedRooms.includes(room.id));
   const later = state.rooms.filter((room) => !room.live && !state.endedRooms.includes(room.id));
   return (
-    <Screen tab title="Rooms">
-      <Card>
-        <p className="text-xs uppercase tracking-[0.16em] text-gold">Chai Break</p>
-        <h2 className="mt-2 font-serif text-3xl">Five anonymous minutes</h2>
-        <p className="mt-1 text-sm text-mute">Matched on intent and language. Names stay hidden unless you both reveal.</p>
-        <div className="mt-4"><Button onClick={() => navigate("/rooms/chai")}>Join the queue</Button></div>
-      </Card>
-      <h3 className="mb-3 mt-6 text-sm text-mute">Live now</h3>
+    <Screen tab>
+      <Headline text="Rooms live now" italic="live" />
+      <p className="mt-2 text-sm text-mute">Voice first. Names stay optional.</p>
+      <button type="button" onClick={() => navigate("/rooms/chai")} className="mt-4 w-full rounded-3xl border border-gold/50 bg-card p-4 text-left">
+        <span className="flex items-center gap-2 text-xs uppercase tracking-[0.16em] text-gold"><Coffee size={14} /> Chai Break</span>
+        <span className="mt-2 block font-serif text-3xl">Five anonymous minutes</span>
+        <span className="mt-1 block text-sm text-mute">Matched on intent and language. Names stay hidden unless you both reveal.</span>
+      </button>
+      <h3 className="mb-3 mt-6 flex items-center gap-2 text-sm text-mute"><Mic size={14} /> Live now</h3>
       <div className="space-y-3">
         {live.map((room) => (
-          <button key={room.id} type="button" onClick={() => navigate(`/rooms/${room.id}`)} className="w-full rounded-3xl border border-line bg-card p-4 text-left">
-            <span className="block font-semibold">{room.title}</span>
-            <span className="mt-1 block text-sm text-mute">{room.speakers} speaking · {room.listeners} listening · {room.host}</span>
+          <button key={room.id} type="button" onClick={() => navigate(`/rooms/${room.id}`)} className="flex min-h-11 w-full items-center gap-3 rounded-3xl border border-line bg-card p-4 text-left">
+            <span className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-mint/15 text-mint"><Mic size={18} /></span>
+            <span className="min-w-0 flex-1">
+              <span className="block font-semibold">{room.title}</span>
+              <span className="mt-1 block text-sm text-mute">{room.speakers} speaking · {room.listeners} listening · {room.host}</span>
+            </span>
           </button>
         ))}
       </div>
       <h3 className="mb-3 mt-6 text-sm text-mute">Later</h3>
       {later.map((room) => (
-        <p key={room.id} className="rounded-2xl border border-line px-4 py-3 text-sm">{room.title} · {room.scheduled}</p>
+        <p key={room.id} className="flex min-h-11 items-center rounded-2xl border border-line px-4 py-3 text-sm">{room.title} · {room.scheduled}</p>
       ))}
-      <div className="mt-5"><Button variant="ghost" onClick={() => navigate("/rooms/new")}>Create a room</Button></div>
+      <div className="mt-5">
+        <Button variant="ghost" onClick={() => navigate("/rooms/new")}><Plus size={18} /> Create a room</Button>
+      </div>
     </Screen>
   );
 }
@@ -59,7 +67,9 @@ export function CreateRoom() {
   const [topic, setTopic] = useState("");
   return (
     <Screen title="New room" back="/rooms">
-      <div className="space-y-3">
+      <Headline text="Start a room" italic="room" />
+      <p className="mt-2 text-sm text-mute">A title is enough. The topic can wait.</p>
+      <div className="mt-4 space-y-3">
         <input className={inputClass} placeholder="Title" value={title} onChange={(event) => setTitle(event.target.value)} />
         <input className={inputClass} placeholder="Topic" value={topic} onChange={(event) => setTopic(event.target.value)} />
         <Button
@@ -106,30 +116,30 @@ export function LiveRoom() {
   if (!room || state.endedRooms.includes(room.id)) {
     return <Screen title="Room" back="/rooms"><p>This room has ended.</p></Screen>;
   }
+  const speakers = ["Imran", "Laya", "Meher"].filter((name) => name !== room.host).slice(0, 2);
   const seats = [
-    { name: room.host, role: "Host" },
-    { name: "Imran", role: "Speaker" },
-    { name: "Laya", role: "Speaker" },
-    { name: "You", role: hand ? "Hand raised" : "Listener" },
+    { name: room.host, role: "Host", photo: samplePhoto(state.preview, room.host.toLowerCase()) },
+    ...speakers.map((name) => ({ name, role: "Speaker", photo: samplePhoto(state.preview, name.toLowerCase()) })),
+    { name: "You", role: hand ? "Hand raised" : "Listener", photo: state.preview ? SELF_PHOTOS[0] : undefined },
   ];
   return (
-    <Screen title={room.title} back="/rooms">
+    <Screen title={room.title} back="/rooms" tab>
       {room.ai ? <p className="mb-3 inline-flex rounded-full bg-mint/15 px-3 py-1 text-xs font-semibold text-mint">AI moderation on in this room</p> : null}
       <p className="text-sm text-mute">{room.topic}</p>
       <p className="mt-2 text-xs text-mute">{tokenNote}</p>
       <div className="mt-4 grid grid-cols-2 gap-3">
         {seats.map((seat) => (
           <Card key={seat.name}>
-            <Portrait name={seat.name} palette={["#3A2A48", "#FFB547"]} className="h-24 w-full rounded-2xl" mode={state.displayMode} />
+            <Portrait name={seat.name} palette={["#3A2A48", "#FFB547"]} src={state.displayMode === "photo" ? seat.photo : undefined} className="h-24 w-full rounded-2xl" mode={state.displayMode} />
             <p className="mt-2 font-semibold">{state.discreet ? "Guest" : seat.name}</p>
             <p className="text-xs text-mute">{seat.role}</p>
           </Card>
         ))}
       </div>
       <div className="mt-4 grid grid-cols-2 gap-2">
-        <Button variant="ghost" onClick={() => setMuted((value) => !value)}>{muted ? "Unmute" : "Mute"}</Button>
-        <Button variant="ghost" onClick={() => setHand((value) => !value)}>{hand ? "Lower hand" : "Raise hand"}</Button>
-        <Button variant="ghost" onClick={() => setGifts(true)}>Gift</Button>
+        <Button variant="ghost" onClick={() => setMuted((value) => !value)}>{muted ? <VolumeX size={18} /> : <Volume2 size={18} />}{muted ? "Unmute" : "Mute"}</Button>
+        <Button variant="ghost" onClick={() => setHand((value) => !value)}><Hand size={18} />{hand ? "Lower hand" : "Raise hand"}</Button>
+        <Button variant="ghost" onClick={() => setGifts(true)}><Gift size={18} /> Gift</Button>
         <Button variant="ghost" onClick={() => navigate("/rooms")}>Leave</Button>
       </div>
       {note ? <p className="mt-3 text-sm text-mint">{note}</p> : null}
@@ -147,7 +157,7 @@ export function LiveRoom() {
                 setGifts(false);
               }}
             >
-              {gift.label} · {gift.cost}
+              <Gift size={16} /> {gift.label} · {gift.cost} coins
             </Button>
           ))}
         </div>
@@ -189,19 +199,33 @@ export function ChaiBreak() {
     <Screen title="Chai Break" back="/rooms">
       {phase === "queue" ? (
         <div>
-          <h2 className="font-serif text-5xl leading-none">Finding a <span className="italic text-gold">voice</span></h2>
+          <div className="grid h-28 w-28 place-items-center rounded-full border border-gold/40 bg-card">
+            <Coffee size={28} className="text-gold" />
+          </div>
+          <Headline text="Finding a voice" italic="voice" className="mt-5" />
           <p className="mt-3 text-sm text-mute">Intent and language only. No photo yet.</p>
         </div>
       ) : null}
       {phase === "live" ? (
         <div className="space-y-4">
+          <p className="flex items-center gap-2 text-sm text-mute"><Timer size={16} /> Five minutes</p>
           <p className="font-serif text-6xl">{clock}</p>
+          <div className="flex items-center gap-3">
+            <Portrait
+              name={revealed ? partner.name : "Guest"}
+              palette={partner.palette}
+              src={revealed ? samplePhoto(state.preview, partner.id) : undefined}
+              mode={revealed && state.preview ? "photo" : "initials"}
+              className="h-16 w-16 rounded-full"
+              compact
+            />
+            <p className="text-sm text-mute">{revealed ? partner.name : "Initials only, until you both reveal"}</p>
+          </div>
           <Card>
             <p className="text-xs text-mute">Topic</p>
             <p className="mt-1 text-lg">{TOPICS[topic % TOPICS.length]}</p>
-            <button type="button" className="mt-3 text-sm font-semibold text-gold" onClick={() => setTopic((value) => value + 1)}>Another card</button>
+            <button type="button" className="mt-3 inline-flex min-h-11 items-center text-sm font-semibold text-gold" onClick={() => setTopic((value) => value + 1)}>Another card</button>
           </Card>
-          <p className="text-sm text-mute">{revealed ? partner.name : "Someone in Hyderabad"} · anonymous until you both reveal</p>
           <Button onClick={() => setMine(true)}>{mine ? "You revealed" : "Reveal"}</Button>
         </div>
       ) : null}
@@ -209,6 +233,12 @@ export function ChaiBreak() {
         <Card className="mt-4">
           {mine && theirs ? (
             <>
+              <Portrait
+                name={partner.name}
+                palette={partner.palette}
+                src={samplePhoto(state.preview, partner.id)}
+                className="mb-3 h-24 w-20 rounded-2xl"
+              />
               <p className="font-semibold">You both revealed. This is {partner.name}.</p>
               <div className="mt-3">
                 <Button onClick={() => {

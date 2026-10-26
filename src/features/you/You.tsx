@@ -1,3 +1,4 @@
+import { ChevronRight, Download, Shield, Sparkles, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { MILESTONES, type DisplayMode } from "../../lib/types";
@@ -24,18 +25,27 @@ import { CityMark, Portrait } from "../../ui/visuals";
 import { Preferences } from "../onboarding/Onboarding";
 import { SAATHI_OPENERS } from "../../mocks/catalog";
 
+function years(dob: string) {
+  if (!dob) return null;
+  const born = new Date(`${dob}T00:00:00`);
+  if (Number.isNaN(born.getTime())) return null;
+  const now = new Date();
+  let age = now.getFullYear() - born.getFullYear();
+  const month = now.getMonth() - born.getMonth();
+  if (month < 0 || (month === 0 && now.getDate() < born.getDate())) age -= 1;
+  return age;
+}
+
 export function YouHome() {
-  const { state } = useStore();
+  const { state, current, commit } = useStore();
   const navigate = useNavigate();
+  const age = years(state.draft.dob);
+  const area = state.draft.areas[0] || "Hyderabad";
   const links = [
     ["/you/preferences", "Preferences"],
-    ["/you/plus", "Closer+"],
     ["/you/gift", "Streak gift"],
-    ["/you/saathi", "Saathi"],
     ["/you/settings", "Settings"],
     ["/you/licences", "Open-source licences"],
-    ["/safety", "Safety"],
-    ["/admin", "Staff desk"],
   ] as const;
   return (
     <Screen tab title={state.discreet ? "Notes" : "You"}>
@@ -48,27 +58,75 @@ export function YouHome() {
               ? (SELF_PHOTOS[state.draft.mainPhoto] ?? SELF_PHOTOS[0])
               : undefined
           }
-          className="h-24 w-20 rounded-3xl"
+          className="h-24 w-24 rounded-full"
           mode={state.displayMode}
         />
         <div>
           <h2 className="font-serif text-4xl">{state.discreet ? "Notes" : state.draft.name || "You"}</h2>
-          <p className="text-sm text-mute">{state.streak.count} day streak · {state.matches.length} mutual</p>
+          <p className="text-sm text-mute">{age ? `${age} · ${area}` : area}</p>
           <p className="text-sm text-mint">{state.draft.selfieDone ? "Verified on this phone" : "Verification pending"}</p>
         </div>
       </div>
-      <Card className="mt-5">
+      <div className="mt-5 grid grid-cols-3 gap-2">
+        {[
+          [String(state.streak.count), "Streak"],
+          [String(state.matches.length), "Mutual"],
+          [String(state.plans.filter((plan) => plan.status === "upcoming").length), "Plans"],
+        ].map(([value, label]) => (
+          <Card key={label} className="px-2 py-3 text-center">
+            <p className="font-serif text-2xl">{value}</p>
+            <p className="text-xs text-mute">{label}</p>
+          </Card>
+        ))}
+      </div>
+      <Card className="mt-4">
         <p className="text-sm text-mute">Ask a friend to vouch. The link opens WhatsApp with a note, not your private chats.</p>
-        <a className="mt-3 inline-flex font-semibold text-gold" href={`https://wa.me/?text=${encodeURIComponent("Would you vouch for me on Closer? It's a verified Hyderabad app.")}`}>
+        <a className="mt-3 inline-flex min-h-11 items-center font-semibold text-gold" href={`https://wa.me/?text=${encodeURIComponent("Would you vouch for me on Closer? It's a verified Hyderabad app.")}`}>
           Request a vouch
         </a>
       </Card>
-      <div className="mt-4 space-y-2">
+      <div className="mt-4 space-y-3">
+        <Toggle on={state.draft.hideFromContacts} onChange={(hideFromContacts) => commit(saveDraft(current(), { hideFromContacts }))} label="Hide me from all my contacts" hint="On by default. People you allow can still see you." />
+        <Toggle on={state.discreet} onChange={(discreet) => commit(setDiscreet(current(), discreet))} label="Discreet mode" hint="The title becomes Notes, and names blur in rooms." />
+        <Toggle on={state.paused} onChange={(paused) => commit(setPaused(current(), paused))} label="Pause my profile" hint="You disappear from the Drop until you turn this off." />
+      </div>
+      <button type="button" onClick={() => navigate("/you/plus")} className="mt-4 flex min-h-11 w-full items-center gap-3 rounded-3xl border border-gold/40 bg-card px-4 py-3 text-left">
+        <Sparkles size={18} className="text-gold" />
+        <span className="min-w-0 flex-1">
+          <span className="block font-semibold">Closer+</span>
+          <span className="block text-sm text-mute">{state.plus ? "On in this preview" : "Four plans, an extra freeze, ₹299"}</span>
+        </span>
+        <ChevronRight size={18} className="text-mute" />
+      </button>
+      <button type="button" onClick={() => navigate("/you/saathi")} className="mt-2 flex min-h-11 w-full items-center gap-3 rounded-3xl border border-line bg-card px-4 py-3 text-left">
+        <span className="rounded-full bg-lilac/20 px-2 py-1 text-[10px] font-semibold text-lilac">AI</span>
+        <span className="min-w-0 flex-1">
+          <span className="block font-semibold">Saathi</span>
+          <span className="block text-sm text-mute">An AI companion. Not a person on Closer.</span>
+        </span>
+        <ChevronRight size={18} className="text-mute" />
+      </button>
+      <div className="mt-3 space-y-2">
+        <button type="button" onClick={() => navigate("/safety")} className="flex min-h-11 w-full items-center gap-3 rounded-2xl border border-line px-4 text-left">
+          <Shield size={16} className="text-mint" /> Safety <ChevronRight size={16} className="ml-auto text-mute" />
+        </button>
         {links.map(([path, label]) => (
           <button key={path} type="button" onClick={() => navigate(path)} className="flex min-h-11 w-full items-center rounded-2xl border border-line px-4 text-left">
             {label}
+            <ChevronRight size={16} className="ml-auto text-mute" />
           </button>
         ))}
+        <button
+          type="button"
+          onClick={() => navigate("/you/settings")}
+          className="flex min-h-11 w-full items-center gap-3 rounded-2xl border border-line px-4 text-left"
+        >
+          <Download size={16} /> Download my data
+          <ChevronRight size={16} className="ml-auto text-mute" />
+        </button>
+        <button type="button" onClick={() => navigate("/you/settings")} className="flex min-h-11 w-full items-center gap-3 rounded-2xl border border-coral/40 px-4 text-left text-coral">
+          <Trash2 size={16} /> Delete account
+        </button>
       </div>
     </Screen>
   );
@@ -88,9 +146,7 @@ export function Plus() {
   const { state, current, commit } = useStore();
   return (
     <Screen title="Closer+" back="/you">
-      <h2 className="font-serif text-5xl leading-none">
-        A little more <span className="italic text-gold">room</span>
-      </h2>
+      <Headline text="A little more room" italic="room" />
       <ul className="mt-4 space-y-2 text-sm text-mute">
         <li>Four open plans instead of three.</li>
         <li>One extra streak freeze each month.</li>
@@ -116,7 +172,7 @@ export function GiftClaim() {
     <Screen title="Streak gift" back="/you">
       {next ? (
         <>
-          <h2 className="font-serif text-4xl">Day {next} is <span className="italic text-gold">yours</span></h2>
+          <Headline text={`Day ${next} is yours`} italic="yours" />
           <div className="mt-4 flex flex-wrap gap-2">
             {["Filter coffee for a week", "A city book", "Café credit"].map((item) => (
               <Chip key={item} active={gift === item} onClick={() => setGift(item)}>{item}</Chip>
@@ -129,7 +185,10 @@ export function GiftClaim() {
           </div>
         </>
       ) : (
-        <p className="text-mute">No gift is ready. The next marks are {MILESTONES.join(", ")}.</p>
+        <>
+          <Headline text="No gift is ready" italic="gift" />
+          <p className="mt-2 text-sm text-mute">The next marks are {MILESTONES.join(", ")}.</p>
+        </>
       )}
       {state.giftClaim ? <p className="mt-4 text-sm text-mint">{state.giftClaim.gift} is with fulfilment.</p> : null}
     </Screen>
@@ -152,7 +211,8 @@ export function Saathi() {
   }, [running, commit, current]);
   return (
     <Screen title="Saathi" back="/you">
-      <p className="rounded-full bg-lilac/20 px-3 py-1 text-xs font-semibold text-lilac">AI · not a person on Closer</p>
+      <Headline text="Talk with Saathi" italic="Saathi" />
+      <p className="mt-3 inline-flex min-h-11 items-center rounded-full bg-lilac/20 px-3 text-xs font-semibold text-lilac">AI · not a person on Closer</p>
       <div className="mt-4 space-y-2">
         {lines.map((line) => (
           <p key={line} className="rounded-2xl bg-card p-3 text-sm">{line}</p>

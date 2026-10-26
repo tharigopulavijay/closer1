@@ -13,7 +13,7 @@ export function Button({ variant = "primary", className, type = "button", ...pro
     <button
       type={type}
       className={cn(
-        "inline-flex h-14 min-h-14 w-full items-center justify-center rounded-2xl px-4 text-base font-bold disabled:opacity-40",
+        "inline-flex h-14 min-h-14 w-full items-center justify-center gap-2 rounded-2xl px-4 text-base font-bold disabled:opacity-40",
         variant === "primary" && "bg-gold text-ink",
         variant === "ghost" && "border border-line bg-transparent text-cream",
         variant === "danger" && "bg-coral text-ink",
