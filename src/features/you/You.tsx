@@ -44,7 +44,7 @@ export function YouHome() {
           name={state.draft.name || "You"}
           palette={["#3E2A22", "#FFB547"]}
           src={
-            state.displayMode === "photo" && (state.preview || state.draft.photoCount > 0)
+            state.displayMode === "photo" && state.preview
               ? (SELF_PHOTOS[state.draft.mainPhoto] ?? SELF_PHOTOS[0])
               : undefined
           }

@@ -7,7 +7,7 @@ import { AREAS, FOODS, LANGUAGES, emptyDraft, type Draft, type Gender, type Inte
 import { completeOnboarding, saveDraft } from "../../state/logic";
 import { useStore } from "../../state/store";
 import { Button, Card, Chip, Field, Headline, ProgressBar, Toggle, inputClass } from "../../ui/primitives";
-import { SELF_PHOTOS } from "../../ui/photos";
+import { SAMPLE_FACES } from "../../ui/photos";
 import { Screen } from "../../ui/shell";
 import { verifySelfie } from "../safety/api";
 
@@ -302,11 +302,10 @@ function Photos({
   return (
     <div className="space-y-5">
       <Headline text="Real photos, real you." italic="real you." />
-      <p className="text-sm text-mute">Add 3 to 6. These sample portraits stand in until a photo leaves this phone.</p>
+      <p className="text-sm text-mute">Add 3 to 6. Filters and AI edits are switched off on profiles.</p>
       <div className="grid grid-cols-3 gap-2">
         {Array.from({ length: 6 }, (_, index) => {
           const filled = index < count;
-          const sample = SELF_PHOTOS[index];
           return (
             <button
               key={index}
@@ -319,7 +318,6 @@ function Photos({
                 index === main && filled ? "border-gold bg-card2" : "border-line bg-card"
               }`}
             >
-              {filled && sample ? <img src={sample} alt="" className="absolute inset-0 h-full w-full object-cover" /> : null}
               <span className="relative rounded-full bg-ink/80 px-2 py-1 font-semibold">
                 {filled ? (index === main ? "Main photo" : "Photo") : "Add photo"}
               </span>
@@ -564,9 +562,9 @@ function Ready({ onNext }: { onNext: (notifications: boolean) => void }) {
   return (
     <div className="space-y-6">
       <div className="flex justify-center gap-2">
-        <img src={SELF_PHOTOS[2]} alt="" className="mt-6 h-24 w-16 -rotate-6 rounded-2xl object-cover" />
-        <img src={SELF_PHOTOS[0]} alt="" className="h-32 w-24 rounded-2xl object-cover" />
-        <img src={SELF_PHOTOS[1]} alt="" className="mt-6 h-24 w-16 rotate-6 rounded-2xl object-cover" />
+        <img src={SAMPLE_FACES.sameera} alt="" className="mt-6 h-24 w-16 -rotate-6 rounded-2xl object-cover" />
+        <img src={SAMPLE_FACES.ananya} alt="" className="h-32 w-24 rounded-2xl object-cover" />
+        <img src={SAMPLE_FACES.divya} alt="" className="mt-6 h-24 w-16 rotate-6 rounded-2xl object-cover" />
       </div>
       <Headline text="Your first Drop arrives at 9 pm." italic="arrives at" className="text-center" />
       <p className="text-center text-mute">3 people, picked for you. Turn on notifications so you don't miss it.</p>

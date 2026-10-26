@@ -1,21 +1,34 @@
+import aisha1 from "../assets/people/aisha1.png";
+import aisha2 from "../assets/people/aisha2.png";
 import ananya from "../assets/people/ananya.png";
 import arjun1 from "../assets/people/arjun1.png";
-import arjun2 from "../assets/people/arjun2.png";
-import arjun3 from "../assets/people/arjun3.png";
 import divya from "../assets/people/divya.png";
+import imran from "../assets/people/imran.png";
+import laya from "../assets/people/laya.png";
+import meher from "../assets/people/meher.png";
+import rohan from "../assets/people/rohan.png";
 import sameera from "../assets/people/sameera.png";
 
-/** Local sample portraits. Keyed by existing person id. Sameera is not a person in this app. */
+/**
+ * AI-generated sample portraits, not real people. Preview mode only:
+ * a real account never shows these as anyone's photo.
+ */
 export const PERSON_PHOTOS: Record<string, string> = {
+  meher,
   ananya,
+  karthik: arjun1,
+  saanvi: sameera,
+  imran,
   divya,
+  rohan,
+  laya,
 };
 
-export const SELF_PHOTOS = [arjun1, arjun2, arjun3];
+/** The preview user, Aisha Khan. */
+export const SELF_PHOTOS = [aisha1, aisha2];
 
 export const SAMPLE_FACES = {
   ananya,
   sameera,
   divya,
-  arjun: arjun1,
 };

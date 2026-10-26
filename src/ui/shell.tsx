@@ -30,17 +30,9 @@ export function TopBar({ title, back }: { title?: string; back?: string }) {
   const open = state.plans.filter((plan) => plan.status === "upcoming").length;
   const cap = state.plus ? 4 : 3;
   const showBadge = state.ready && !back && !title;
-  const time = new Intl.DateTimeFormat("en-IN", {
-    hour: "numeric",
-    minute: "2-digit",
-    timeZone: "Asia/Kolkata",
-  }).format(new Date());
 
   return (
-    <header className="sticky top-0 z-20 border-b border-line/40 bg-ink/90 px-4 pb-2.5 pt-2 backdrop-blur-md">
-      <p className="mb-1 px-0.5 text-[11px] font-medium text-mute" aria-hidden="true">
-        {time}
-      </p>
+    <header className="sticky top-0 z-20 border-b border-line/40 bg-ink/90 px-4 pb-2.5 pt-[max(0.5rem,env(safe-area-inset-top))] backdrop-blur-md">
       <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2">
         <div className="flex items-center gap-1">
           {back ? (

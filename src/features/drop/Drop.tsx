@@ -1,4 +1,4 @@
-import { Briefcase, ChevronRight, Clock, Heart, MapPin, Snowflake } from "lucide-react";
+import { Briefcase, Check, ChevronRight, Clock, Heart, MapPin, Snowflake, Sun } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { PEOPLE, personById } from "../../mocks/people";
@@ -82,7 +82,7 @@ export function DropHome() {
               onClick={() => navigate("/streak")}
               className="inline-flex min-h-11 items-center gap-2 rounded-full bg-gold px-3 text-sm font-bold text-ink"
             >
-              <span aria-hidden>☀</span>
+              <Sun size={16} aria-hidden />
               {state.streak.count}-day streak
             </button>
             <p className="mt-4 text-[11px] font-semibold uppercase tracking-[0.16em] text-mute">
@@ -321,6 +321,11 @@ export function StreakScreen() {
   const weekday = new Intl.DateTimeFormat("en-IN", { weekday: "short", timeZone: "Asia/Kolkata" }).format(now);
   const todayIndex = Math.max(0, days.findIndex((day) => weekday.startsWith(day.slice(0, 2))));
   const active = state.streak.count > 0 && !state.streak.frozenByAway;
+  const count = state.streak.count;
+  const nextMilestone = MILESTONES.find((day) => day > count) ?? MILESTONES[MILESTONES.length - 1];
+  const lastMilestone = [...MILESTONES].reverse().find((day) => day <= count) ?? 0;
+  const progress =
+    count >= nextMilestone ? 100 : Math.round(((count - lastMilestone) / (nextMilestone - lastMilestone)) * 100);
   return (
     <Screen back="/drop" tab>
       <Headline text={`${state.streak.count}-day streak`} italic="streak" className="!text-[52px]" />
@@ -328,12 +333,14 @@ export function StreakScreen() {
       <div className="mt-5 flex items-center gap-3">
         <div
           className="grid h-28 w-28 shrink-0 place-items-center rounded-full"
-          style={{ background: "conic-gradient(#FFB547 0 78%, #3A2A48 78% 100%)" }}
+          style={{ background: `conic-gradient(#FFB547 0 ${progress}%, #3A2A48 ${progress}% 100%)` }}
+          role="img"
+          aria-label={`${count} of ${nextMilestone} days to the next milestone`}
         >
           <div className="grid h-[5.4rem] w-[5.4rem] place-items-center rounded-full bg-ink text-center">
             <span>
-              <span className="block font-serif text-4xl leading-none">{state.streak.count}</span>
-              <span className="text-[10px] uppercase tracking-wider text-mute">of days</span>
+              <span className="block font-serif text-4xl leading-none">{count}</span>
+              <span className="text-[10px] uppercase tracking-wider text-mute">of {nextMilestone}</span>
             </span>
           </div>
         </div>
@@ -344,7 +351,7 @@ export function StreakScreen() {
               return (
                 <div key={day}>
                   <div className={`mx-auto grid h-6 w-6 place-items-center rounded-full text-[10px] ${checked ? "bg-gold text-ink" : "bg-card text-mute"}`}>
-                    {checked ? "✓" : ""}
+                    {checked ? <Check size={12} strokeWidth={3} aria-hidden /> : null}
                   </div>
                   <div className="mt-1">{day}</div>
                 </div>
@@ -415,12 +422,14 @@ export function Mutual() {
           name={state.draft.name || "You"}
           palette={["#3E2A22", "#FFB547"]}
           src={
-            state.displayMode === "photo" && (state.preview || state.draft.photoCount > 0) ? SELF_PHOTOS[0] : undefined
+            state.displayMode === "photo" && state.preview ? SELF_PHOTOS[0] : undefined
           }
           mode={state.displayMode}
           className="h-24 w-24 rounded-full border-2 border-gold object-cover"
         />
-        <span className="grid h-8 w-8 place-items-center rounded-full bg-gold text-sm text-ink">♥</span>
+        <span className="grid h-8 w-8 place-items-center rounded-full bg-gold text-ink">
+          <Heart size={16} fill="currentColor" aria-hidden />
+        </span>
         <Portrait
           name={person.name}
           palette={person.palette}
