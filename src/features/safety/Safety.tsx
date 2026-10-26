@@ -1,0 +1,291 @@
+import { useEffect, useRef, useState } from "react";
+import { useNavigate, useParams } from "react-router-dom";
+import { personById } from "../../mocks/people";
+import { venueById } from "../../mocks/catalog";
+import { SEVERE_CATEGORIES } from "../../lib/types";
+import {
+  addTrusted,
+  answerCheck,
+  appealStrike,
+  checkIn,
+  confirmTrusted,
+  fileReport,
+  markCheckCall,
+  setCheckInterval,
+  setSharing,
+  triggerSos,
+} from "../../state/logic";
+import { useStore } from "../../state/store";
+import { Button, Card, Chip, inputClass } from "../../ui/primitives";
+import { Screen } from "../../ui/shell";
+import { MapCard } from "../../ui/visuals";
+import { escalationStage, placeCheckCall, withinGeofence } from "./api";
+
+export function SafetyHome() {
+  const { state } = useStore();
+  const navigate = useNavigate();
+  return (
+    <Screen title="Safety" back="/drop">
+      <h2 className="font-serif text-5xl leading-none">
+        A calm <span className="italic text-gold">net</span>
+      </h2>
+      <p className="mt-3 text-sm text-mute">Trusted people, a check-in, and a way to reach 112. The city stays in the background.</p>
+      <div className="mt-5 space-y-3">
+        <Button onClick={() => navigate("/safety/setup")}>Trusted contacts</Button>
+        <Button variant="ghost" onClick={() => navigate("/safety/report")}>Report someone</Button>
+        <Button variant="ghost" onClick={() => navigate("/safety/strike")}>Strike notice</Button>
+      </div>
+      <Card className="mt-5">
+        <p className="text-sm text-mute">{state.trusted.filter((item) => item.confirmed).length} of {state.trusted.length} contacts confirmed</p>
+        <p className="mt-1 text-sm text-mute">Check-in every {state.checkInterval} minutes</p>
+      </Card>
+    </Screen>
+  );
+}
+
+export function SafetySetup() {
+  const { state, current, commit } = useStore();
+  const [name, setName] = useState("");
+  const [phone, setPhone] = useState("");
+  return (
+    <Screen title="Trusted people" back="/safety">
+      <p className="text-sm text-mute">Up to three. They confirm from an SMS link before they can be alerted.</p>
+      <div className="mt-4 flex gap-2">
+        {([30, 60, 90] as const).map((minutes) => (
+          <Chip key={minutes} active={state.checkInterval === minutes} onClick={() => commit(setCheckInterval(current(), minutes))}>
+            {minutes} min
+          </Chip>
+        ))}
+      </div>
+      <div className="mt-4 space-y-3">
+        {state.trusted.map((contact) => (
+          <Card key={contact.id}>
+            <p className="font-semibold">{contact.name}</p>
+            <p className="text-sm text-mute">{contact.confirmed ? "Confirmed" : "Waiting for their yes"}</p>
+            {contact.confirmed ? null : (
+              <button type="button" className="mt-2 text-sm font-semibold text-gold" onClick={() => commit(confirmTrusted(current(), contact.id))}>
+                Mark confirmed (preview)
+              </button>
+            )}
+          </Card>
+        ))}
+      </div>
+      {state.trusted.length < 3 ? (
+        <div className="mt-4 space-y-3">
+          <input className={inputClass} placeholder="Name" value={name} onChange={(event) => setName(event.target.value)} />
+          <input className={inputClass} placeholder="Mobile" value={phone} onChange={(event) => setPhone(event.target.value)} />
+          <Button
+            disabled={!name.trim() || phone.replace(/\D/g, "").length < 10}
+            onClick={() => {
+              commit(addTrusted(current(), name.trim(), phone));
+              setName("");
+              setPhone("");
+            }}
+          >
+            Send confirmation link
+          </Button>
+        </div>
+      ) : null}
+    </Screen>
+  );
+}
+
+export function DateDay() {
+  const { planId = "" } = useParams();
+  const { state, current, commit } = useStore();
+  const navigate = useNavigate();
+  const plan = state.plans.find((item) => item.id === planId);
+  const person = plan ? personById(plan.personId) : undefined;
+  const venue = plan ? venueById(plan.venueId) : undefined;
+  const session = state.sessions.find((item) => item.planId === planId);
+  const [simulate, setSimulate] = useState(false);
+  const [hold, setHold] = useState(0);
+  const [sosNote, setSosNote] = useState("");
+  const frame = useRef<number | null>(null);
+  const now = Date.now();
+  const stage = session?.promptAt
+    ? escalationStage(now - Date.parse(session.promptAt), Boolean(session.answeredAt), session.helpRequested)
+    : null;
+
+  useEffect(() => {
+    if (stage === "calling" && session && !session.callPlaced) {
+      placeCheckCall();
+      commit(markCheckCall(current(), planId));
+    }
+  }, [stage, session, commit, current, planId]);
+
+  if (!plan || !person || !venue) return <Screen title="Date day" back="/plans"><p>No date is booked.</p></Screen>;
+
+  function startHold() {
+    const began = performance.now();
+    const step = (time: number) => {
+      const value = Math.min(1, (time - began) / 2000);
+      setHold(value);
+      if (value >= 1) {
+        const coords = { lat: venue?.lat ?? null, lng: venue?.lng ?? null };
+        commit(triggerSos(current(), planId, coords));
+        setSosNote("112 is opening. Trusted contacts and the safety desk already have the live location.");
+        const link = document.createElement("a");
+        link.href = "tel:112";
+        link.click();
+        return;
+      }
+      frame.current = requestAnimationFrame(step);
+    };
+    frame.current = requestAnimationFrame(step);
+  }
+
+  function cancelHold() {
+    if (frame.current) cancelAnimationFrame(frame.current);
+    setHold(0);
+  }
+
+  return (
+    <Screen title="Date day" back={`/plans/${plan.id}`}>
+      <h2 className="font-serif text-4xl">
+        {person.name.split(" ")[0]} at <span className="italic text-gold">{venue.name}</span>
+      </h2>
+      <div className="mt-4">
+        <MapCard name={venue.name} area={venue.area} />
+      </div>
+      <div className="mt-4 space-y-3">
+        <Button
+          onClick={() => {
+            const here = { lat: venue.lat, lng: venue.lng };
+            const far = { lat: venue.lat + 0.02, lng: venue.lng + 0.02 };
+            const coords = simulate ? here : far;
+            if (!simulate && !withinGeofence(coords, venue)) {
+              setSosNote("You're not within 150m of the venue yet, so check-in didn't count.");
+              return;
+            }
+            commit(checkIn(current(), plan.id, simulate ? here : coords));
+            navigate(`/safety/checkin/${plan.id}`);
+          }}
+        >
+          I'm here
+        </Button>
+        <button type="button" className="text-sm text-mute" onClick={() => setSimulate((value) => !value)}>
+          {simulate ? "Preview location: at the venue" : "Use a real fix. Preview can simulate the venue pin."}
+        </button>
+        <Button
+          variant="ghost"
+          onClick={() => commit(setSharing(current(), plan.id, !(session?.sharing ?? false)))}
+        >
+          {session?.sharing ? "Stop sharing location" : "Share live location"}
+        </Button>
+        {state.trusted.find((item) => item.confirmed) ? (
+          <a className="flex h-14 items-center justify-center rounded-2xl border border-line font-semibold" href={`tel:${state.trusted.find((item) => item.confirmed)?.phone}`}>
+            Call a trusted contact
+          </a>
+        ) : (
+          <p className="text-sm text-mute">Add a confirmed contact before the rescue call can dial.</p>
+        )}
+      </div>
+      {stage ? <p className="mt-4 text-sm text-mint">Check-in ladder: {stage}</p> : null}
+      <button
+        type="button"
+        onPointerDown={startHold}
+        onPointerUp={cancelHold}
+        onPointerLeave={cancelHold}
+        className="relative mt-6 h-16 w-full overflow-hidden rounded-2xl bg-coral font-semibold text-ink"
+      >
+        <span className="absolute inset-y-0 left-0 bg-ink/20" style={{ width: `${hold * 100}%` }} />
+        <span className="relative">Hold 2 seconds for SOS</span>
+      </button>
+      {sosNote ? <p className="mt-3 text-sm text-cream">{sosNote}</p> : null}
+    </Screen>
+  );
+}
+
+export function CheckInPrompt() {
+  const { planId = "" } = useParams();
+  const { current, commit } = useStore();
+  const navigate = useNavigate();
+  return (
+    <Screen title="Check-in" back={`/safety/date/${planId}`}>
+      <h2 className="font-serif text-5xl leading-none">
+        Everything <span className="italic text-gold">okay</span>?
+      </h2>
+      <p className="mt-3 text-sm text-mute">No answer for 5 minutes places an automated call, then alerts your contacts and the safety desk.</p>
+      <div className="mt-6 space-y-3">
+        <Button onClick={() => { commit(answerCheck(current(), planId, true)); navigate(`/safety/date/${planId}`); }}>
+          I'm okay
+        </Button>
+        <Button variant="danger" onClick={() => { commit(answerCheck(current(), planId, false)); navigate(`/safety/date/${planId}`); }}>
+          I need help
+        </Button>
+      </div>
+    </Screen>
+  );
+}
+
+export function ReportFlow() {
+  const { state, current, commit } = useStore();
+  const [name, setName] = useState("");
+  const [category, setCategory] = useState(SEVERE_CATEGORIES[0]);
+  const [detail, setDetail] = useState("");
+  const [done, setDone] = useState(false);
+  const people = state.matches.map((id) => personById(id)?.name).filter(Boolean) as string[];
+  return (
+    <Screen title="Report" back="/safety">
+      {done ? (
+        <Card>
+          <p className="font-semibold">A person reads this.</p>
+          <p className="mt-2 text-sm text-mute">Strikes are not automatic. Severe categories can become a ban only after a safety admin confirms them.</p>
+        </Card>
+      ) : (
+        <div className="space-y-4">
+          <div className="flex flex-wrap gap-2">
+            {[...people, "Someone else"].map((item) => (
+              <Chip key={item} active={name === item} onClick={() => setName(item)}>{item}</Chip>
+            ))}
+          </div>
+          <input className={inputClass} placeholder="Name" value={name} onChange={(event) => setName(event.target.value)} />
+          <div className="flex flex-wrap gap-2">
+            {[...SEVERE_CATEGORIES, "Spam", "Rude"].map((item) => (
+              <Chip key={item} active={category === item} onClick={() => setCategory(item)}>{item}</Chip>
+            ))}
+          </div>
+          <textarea className="h-28 w-full rounded-2xl border border-line bg-card p-3" value={detail} onChange={(event) => setDetail(event.target.value)} placeholder="What happened" />
+          <Button
+            disabled={!name.trim() || !detail.trim()}
+            onClick={() => {
+              commit(fileReport(current(), {
+                againstName: name.trim(),
+                category,
+                severe: SEVERE_CATEGORIES.includes(category),
+                detail: detail.trim(),
+              }));
+              setDone(true);
+            }}
+          >
+            Submit report
+          </Button>
+        </div>
+      )}
+    </Screen>
+  );
+}
+
+export function StrikeNotice() {
+  const { state, current, commit } = useStore();
+  const [appeal, setAppeal] = useState("");
+  const strike = state.myStrikes[0];
+  return (
+    <Screen title="Strike notice" back="/safety">
+      {strike ? (
+        <div className="space-y-4">
+          <h2 className="font-serif text-4xl">A strike was <span className="italic text-gold">confirmed</span></h2>
+          <p className="text-sm text-mute">{strike.category} · {new Date(strike.at).toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata" })}</p>
+          <textarea className="h-28 w-full rounded-2xl border border-line bg-card p-3" value={appeal} onChange={(event) => setAppeal(event.target.value)} placeholder="Your appeal" />
+          <Button onClick={() => commit(appealStrike(current(), strike.id, appeal))}>Send appeal</Button>
+        </div>
+      ) : (
+        <Card>
+          <p className="font-semibold">You don't have a strike.</p>
+          <p className="mt-2 text-sm text-mute">If one is confirmed by the safety desk, it shows here with a way to appeal. Three minor strikes, or one severe confirmation, closes the account.</p>
+        </Card>
+      )}
+    </Screen>
+  );
+}
