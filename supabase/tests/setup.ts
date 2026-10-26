@@ -102,6 +102,7 @@ export async function createTestDb() {
   await db.exec(migration("0001_init.sql"));
   await db.exec(storageStub);
   await db.exec(migration("0002_rules.sql"));
+  await db.exec(migration("0003_hardening.sql"));
   return db;
 }
 

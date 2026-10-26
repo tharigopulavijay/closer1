@@ -40,6 +40,13 @@ async function count(sql: string, params: unknown[] = []) {
   return Number(result.rows[0]?.n ?? 0);
 }
 
+// The send-message Edge Function calls this after moderation.
+function deliver(sender: string, plan: string | undefined, body: string) {
+  return asService(db, (tx) =>
+    tx.query(`select public.deliver_message($1::uuid, $2::uuid, $3)`, [sender, plan, body]),
+  );
+}
+
 describe("database rules", () => {
   beforeAll(async () => {
     db = await createTestDb();
@@ -156,8 +163,9 @@ describe("database rules", () => {
       ),
     ).rejects.toThrow();
     await expect(
-      asUser(db, C, (tx) => tx.query(`select public.send_message($1::uuid, 'hello')`, [A])),
-    ).rejects.toThrow(/banned/);
+      asUser(db, C, (tx) => tx.query(`select public.deliver_message($1::uuid, $2::uuid, 'hello')`, [C, A])),
+    ).rejects.toThrow(/permission denied/);
+    await expect(deliver(C, A, "hello")).rejects.toThrow(/banned/);
 
     await expect(asUser(db, A, (tx) => tx.query(`select public.send_like($1::uuid)`, [B]))).rejects.toThrow(
       /not in drop/,
@@ -203,9 +211,7 @@ describe("database rules", () => {
     const plan = created.rows[0]?.create_plan;
     expect(plan).toBeTruthy();
 
-    await expect(asUser(db, A, (tx) => tx.query(`select public.send_message($1::uuid, 'chai?')`, [plan]))).rejects.toThrow(
-      /chat closed/,
-    );
+    await expect(deliver(A, plan, "chai?")).rejects.toThrow(/chat closed/);
     await expect(asUser(db, A, (tx) => tx.query(`update public.deposits set status = 'paid'`))).rejects.toThrow(
       /permission denied/,
     );
@@ -222,17 +228,21 @@ describe("database rules", () => {
       1,
     );
 
-    await asUser(db, A, (tx) => tx.query(`select public.send_message($1::uuid, 'chai?')`, [plan]));
+    // Moderation before delivery: the app cannot skip the Edge Function.
+    await expect(
+      asUser(db, A, (tx) => tx.query(`select public.deliver_message($1::uuid, $2::uuid, 'chai?')`, [A, plan])),
+    ).rejects.toThrow(/permission denied/);
+    await expect(deliver(V, plan, "hi")).rejects.toThrow(/not in plan/);
+
+    await deliver(A, plan, "chai?");
     expect(await count(`select count(*)::int as n from public.messages where plan_id = $1`, [plan])).toBe(1);
 
     await db.query(`update public.plans set booked_at = now() - interval '49 hours' where id = $1`, [plan]);
-    await expect(asUser(db, A, (tx) => tx.query(`select public.send_message($1::uuid, 'still there?')`, [plan]))).rejects.toThrow(
-      /chat closed/,
-    );
+    await expect(deliver(A, plan, "still there?")).rejects.toThrow(/chat closed/);
 
     await asUser(db, A, (tx) => tx.query(`select public.keep_chat($1::uuid)`, [plan]));
     await asUser(db, B, (tx) => tx.query(`select public.keep_chat($1::uuid)`, [plan]));
-    await asUser(db, A, (tx) => tx.query(`select public.send_message($1::uuid, 'kept')`, [plan]));
+    await deliver(A, plan, "kept");
     expect(await count(`select count(*)::int as n from public.messages where plan_id = $1`, [plan])).toBe(2);
   });
 
@@ -246,7 +256,11 @@ describe("database rules", () => {
       asUser(db, A, (tx) => tx.query(`select public.claim_gift(7, 'mug', 'Hyderabad')`)),
     ).rejects.toThrow(/closer plus only/);
 
-    await db.query(`update public.profiles set closer_plus = true where id = $1`, [A]);
+    // Closer+ is server-owned: a user cannot switch it on for themselves.
+    await expect(
+      asUser(db, A, (tx) => tx.query(`update public.profiles set closer_plus = true where id = $1`, [A])),
+    ).rejects.toThrow(/protected field/);
+    await asService(db, (tx) => tx.query(`update public.profiles set closer_plus = true where id = $1`, [A]));
     await db.query(`update public.streaks set count = 7 where user_id = $1`, [A]);
     await expect(
       asUser(db, A, (tx) => tx.query(`select public.claim_gift(30, 'mug', 'Hyderabad')`)),
@@ -441,8 +455,26 @@ describe("database rules", () => {
     await expect(
       asUser(db, A, (tx) => tx.query(`update public.trusted_contacts set confirmed = true where id = $1`, [contactId])),
     ).rejects.toThrow(/confirm via link/);
-    await db.query(`update public.trusted_contacts set confirm_token = 'sms-token' where id = $1`, [contactId]);
-    await asUser(db, A, (tx) => tx.query(`select public.confirm_trusted_contact('sms-token')`));
+    // A cannot plant a token of their own choosing.
+    await asUser(db, A, (tx) =>
+      tx.query(
+        `insert into public.trusted_contacts (user_id, name, phone_hash, confirm_token) values ($1, 'Didi', 'h2', 'mine')`,
+        [A],
+      ),
+    );
+    expect(await count(`select count(*)::int as n from public.trusted_contacts where confirm_token = 'mine'`)).toBe(0);
+
+    // The SMS sender stores the token; only the contact's link (service role) confirms.
+    await asService(db, (tx) =>
+      tx.query(`update public.trusted_contacts set confirm_token = 'sms-token' where id = $1`, [contactId]),
+    );
+    await expect(
+      asUser(db, A, (tx) => tx.query(`select confirm_token from public.trusted_contacts where id = $1`, [contactId])),
+    ).rejects.toThrow(/permission denied/);
+    await expect(
+      asUser(db, A, (tx) => tx.query(`select public.confirm_trusted_contact('sms-token')`)),
+    ).rejects.toThrow(/permission denied/);
+    await asService(db, (tx) => tx.query(`select public.confirm_trusted_contact('sms-token')`));
     expect(await count(`select count(*)::int as n from public.trusted_contacts where id = $1 and confirmed`, [contactId])).toBe(
       1,
     );
