@@ -13,7 +13,7 @@ export function Button({ variant = "primary", className, type = "button", ...pro
     <button
       type={type}
       className={cn(
-        "inline-flex h-14 w-full items-center justify-center rounded-2xl px-4 text-base font-semibold disabled:opacity-40",
+        "inline-flex h-14 min-h-14 w-full items-center justify-center rounded-2xl px-4 text-base font-bold disabled:opacity-40",
         variant === "primary" && "bg-gold text-ink",
         variant === "ghost" && "border border-line bg-transparent text-cream",
         variant === "danger" && "bg-coral text-ink",
@@ -29,22 +29,47 @@ export function Chip({
   active,
   children,
   onClick,
+  className,
 }: {
   active?: boolean;
   children: ReactNode;
   onClick?: () => void;
+  className?: string;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
       className={cn(
-        "min-h-11 rounded-full border px-4 text-sm font-medium",
+        "min-h-11 rounded-full border px-4 text-sm font-semibold",
         active ? "border-gold bg-gold text-ink" : "border-line bg-card text-cream",
+        className,
       )}
     >
       {children}
     </button>
+  );
+}
+
+export function Headline({
+  text,
+  italic,
+  className,
+}: {
+  text: string;
+  italic: string;
+  className?: string;
+}) {
+  const index = text.indexOf(italic);
+  if (index < 0) {
+    return <h2 className={cn("font-serif text-5xl leading-[0.95] text-cream", className)}>{text}</h2>;
+  }
+  return (
+    <h2 className={cn("font-serif text-5xl leading-[0.95] text-cream", className)}>
+      {text.slice(0, index)}
+      <span className="italic text-gold">{italic}</span>
+      {text.slice(index + italic.length)}
+    </h2>
   );
 }
 

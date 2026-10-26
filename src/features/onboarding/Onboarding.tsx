@@ -6,7 +6,8 @@ import { contactPayload, hashPhone, normaliseE164 } from "../../lib/hash";
 import { AREAS, FOODS, LANGUAGES, emptyDraft, type Draft, type Gender, type Intent, type ShowMe } from "../../lib/types";
 import { completeOnboarding, saveDraft } from "../../state/logic";
 import { useStore } from "../../state/store";
-import { Button, Card, Chip, Field, ProgressBar, Toggle, inputClass } from "../../ui/primitives";
+import { Button, Card, Chip, Field, Headline, ProgressBar, Toggle, inputClass } from "../../ui/primitives";
+import { SELF_PHOTOS } from "../../ui/photos";
 import { Screen } from "../../ui/shell";
 import { verifySelfie } from "../safety/api";
 
@@ -26,9 +27,14 @@ export function Onboarding() {
   }
 
   return (
-    <Screen title="Closer" back={index === 0 ? "/" : `/onboarding/${ORDER[index - 1]}`}>
-      <div className="mb-5">
-        <ProgressBar value={(index + 1) / ORDER.length} />
+    <Screen back={index === 0 ? "/" : `/onboarding/${ORDER[index - 1]}`}>
+      <div className="mb-5 flex items-center gap-3">
+        <div className="flex-1">
+          <ProgressBar value={(index + 1) / ORDER.length} />
+        </div>
+        <span className="text-xs font-semibold text-mute">
+          {index + 1}/{ORDER.length}
+        </span>
       </div>
       {step === "phone" ? <Phone draft={draft} onNext={(phone) => go("otp", { phone })} /> : null}
       {step === "otp" ? (
@@ -96,12 +102,13 @@ function Phone({ draft, onNext }: { draft: Draft; onNext: (phone: string) => voi
   const e164 = normaliseE164(phone);
   return (
     <div className="space-y-6">
-      <h2 className="font-serif text-5xl leading-none">
-        Your <span className="italic text-gold">number</span>
-      </h2>
-      <p className="text-mute">We'll text a code. It stays with the sign-in, not with your profile.</p>
+      <Headline text="Your number" italic="number" />
+      <p className="text-mute">Only used to sign you in. Never shown to anyone.</p>
       <Field label="Mobile">
-        <input className={inputClass} inputMode="numeric" placeholder="98xxxxxxxx" value={phone} onChange={(event) => setPhone(event.target.value)} />
+        <span className="flex gap-2">
+          <span className="grid h-14 w-20 shrink-0 place-items-center rounded-2xl border border-line bg-card text-sm font-semibold">+91</span>
+          <input className={inputClass} inputMode="numeric" autoComplete="tel" placeholder="98480 12345" value={phone} onChange={(event) => setPhone(event.target.value)} />
+        </span>
       </Field>
       <Button disabled={!e164} onClick={() => onNext(e164)}>
         Send code
@@ -115,16 +122,33 @@ function Otp({ phone, onNext }: { phone: string; onNext: () => void }) {
   const valid = backendConfigured ? code.length === 6 : code === DEMO_OTP;
   return (
     <div className="space-y-6">
-      <h2 className="font-serif text-5xl leading-none">
-        Enter the <span className="italic text-gold">code</span>
-      </h2>
+      <Headline text="Enter the code" italic="code" />
       <p className="text-mute">Sent to {phone}.</p>
       {backendConfigured ? null : (
         <Card>
           <p className="text-sm text-mute">No SMS provider is connected in this preview. Use code {DEMO_OTP}.</p>
         </Card>
       )}
-      <input className={inputClass} inputMode="numeric" maxLength={6} value={code} onChange={(event) => setCode(event.target.value.replace(/\D/g, "").slice(0, 6))} />
+      <div className="grid grid-cols-6 gap-2" role="group" aria-label="6-digit code">
+        {Array.from({ length: 6 }, (_, index) => (
+          <input
+            key={index}
+            aria-label={`Digit ${index + 1}`}
+            inputMode="numeric"
+            maxLength={1}
+            value={code[index] ?? ""}
+            className="h-14 w-full rounded-2xl border border-line bg-card text-center font-serif text-2xl text-cream outline-none"
+            onChange={(event) => {
+              const digit = event.target.value.replace(/\D/g, "").slice(-1);
+              const next = code.padEnd(index, " ").slice(0, 6).split("");
+              next[index] = digit;
+              setCode(next.join("").replace(/\s/g, "").slice(0, 6));
+              const sibling = event.target.nextElementSibling;
+              if (digit && sibling instanceof HTMLInputElement) sibling.focus();
+            }}
+          />
+        ))}
+      </div>
       <Button disabled={!valid} onClick={onNext}>
         Continue
       </Button>
@@ -141,10 +165,8 @@ function Basics({ draft, onNext }: { draft: Draft; onNext: (patch: Partial<Draft
   const ready = name.trim().length > 1 && adult && gender && showMe;
   return (
     <div className="space-y-5">
-      <h2 className="font-serif text-5xl leading-none">
-        The <span className="italic text-gold">basics</span>
-      </h2>
-      <Field label="Name">
+      <Headline text="About you" italic="you" />
+      <Field label="First name">
         <input className={inputClass} value={name} onChange={(event) => setName(event.target.value)} />
       </Field>
       <Field label="Date of birth">
@@ -181,20 +203,28 @@ function IntentStep({ draft, onNext }: { draft: Draft; onNext: (intent: Intent) 
   ];
   return (
     <div className="space-y-4">
-      <h2 className="font-serif text-5xl leading-none">
-        What are you <span className="italic text-gold">here</span> for?
-      </h2>
-      {options.map((option) => (
-        <button
-          key={option.id}
-          type="button"
-          onClick={() => onNext(option.id)}
-          className={`w-full rounded-3xl border p-4 text-left ${draft.intent === option.id ? "border-gold bg-card2" : "border-line bg-card"}`}
-        >
-          <span className="block text-lg font-semibold">{option.title}</span>
-          <span className="mt-1 block text-sm text-mute">{option.copy}</span>
-        </button>
-      ))}
+      <Headline text="What are you here for?" italic="here for?" />
+      {options.map((option) => {
+        const mark = option.id === "dating" ? "D" : option.id === "friends" ? "F" : "B";
+        const tone = option.id === "dating" ? "bg-gold text-ink" : option.id === "friends" ? "bg-lilac text-ink" : "bg-mint text-ink";
+        return (
+          <button
+            key={option.id}
+            type="button"
+            onClick={() => onNext(option.id)}
+            className={`flex min-h-16 w-full items-center gap-3 rounded-3xl border p-4 text-left ${draft.intent === option.id ? "border-gold bg-card2" : "border-line bg-card"}`}
+          >
+            <span className={`grid h-11 w-11 shrink-0 place-items-center rounded-2xl text-lg font-bold ${tone}`}>{mark}</span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-lg font-semibold">{option.title}</span>
+              <span className="mt-1 block text-sm text-mute">{option.copy}</span>
+            </span>
+          </button>
+        );
+      })}
+      <Card>
+        <p className="text-sm text-mute">Tables of 6 stay open to everyone. This choice only changes who is in your Drop.</p>
+      </Card>
     </div>
   );
 }
@@ -237,9 +267,7 @@ function Selfie({ onNext }: { onNext: () => void }) {
 
   return (
     <div className="space-y-5">
-      <h2 className="font-serif text-5xl leading-none">
-        A live <span className="italic text-gold">selfie</span>
-      </h2>
+      <Headline text="A live selfie" italic="selfie" />
       <p className="text-mute">Hold still. We capture one frame after five seconds. A liveness vendor checks it later.</p>
       <div className="relative aspect-[3/4] overflow-hidden rounded-3xl border border-line bg-card">
         <video ref={videoRef} autoPlay muted playsInline className="h-full w-full object-cover" />
@@ -273,25 +301,31 @@ function Photos({
 }) {
   return (
     <div className="space-y-5">
-      <h2 className="font-serif text-5xl leading-none">
-        Three to six <span className="italic text-gold">photos</span>
-      </h2>
+      <Headline text="Real photos, real you." italic="real you." />
+      <p className="text-sm text-mute">Add 3 to 6. These sample portraits stand in until a photo leaves this phone.</p>
       <div className="grid grid-cols-3 gap-2">
-        {Array.from({ length: 6 }, (_, index) => (
-          <button
-            key={index}
-            type="button"
-            onClick={() => {
-              if (index < count) onChange(count, index);
-              else if (count < 6) onChange(count + 1, count === 0 ? 0 : main);
-            }}
-            className={`flex aspect-[3/4] items-end rounded-2xl border p-2 text-left text-xs ${
-              index === main && index < count ? "border-gold bg-card2" : "border-line bg-card"
-            }`}
-          >
-            {index < count ? (index === main ? "Main" : "Portrait") : "Add"}
-          </button>
-        ))}
+        {Array.from({ length: 6 }, (_, index) => {
+          const filled = index < count;
+          const sample = SELF_PHOTOS[index];
+          return (
+            <button
+              key={index}
+              type="button"
+              onClick={() => {
+                if (index < count) onChange(count, index);
+                else if (count < 6) onChange(count + 1, count === 0 ? 0 : main);
+              }}
+              className={`relative flex aspect-[3/4] items-end overflow-hidden rounded-2xl border p-2 text-left text-xs ${
+                index === main && filled ? "border-gold bg-card2" : "border-line bg-card"
+              }`}
+            >
+              {filled && sample ? <img src={sample} alt="" className="absolute inset-0 h-full w-full object-cover" /> : null}
+              <span className="relative rounded-full bg-ink/80 px-2 py-1 font-semibold">
+                {filled ? (index === main ? "Main photo" : "Photo") : "Add photo"}
+              </span>
+            </button>
+          );
+        })}
       </div>
       <label className="block text-center text-sm text-mute">
         Or choose from this phone
@@ -366,9 +400,7 @@ function Voice({
 
   return (
     <div className="space-y-4">
-      <h2 className="font-serif text-5xl leading-none">
-        Three <span className="italic text-gold">voices</span>
-      </h2>
+      <Headline text="Three voices" italic="voices" />
       <p className="text-mute">Up to 30 seconds. You can record again.</p>
       {voices.map((voice, index) => (
         <Card key={voice.prompt}>
@@ -415,9 +447,7 @@ export function Preferences({
   }
   return (
     <div className="space-y-5">
-      <h2 className="font-serif text-5xl leading-none">
-        Your <span className="italic text-gold">city</span>
-      </h2>
+      <Headline text="Your city" italic="city" />
       <div className="flex flex-wrap gap-2">
         {AREAS.map((area) => (
           <Chip key={area} active={draft.areas.includes(area)} onClick={() => onChange({ areas: toggle(draft.areas, area) })}>
@@ -483,9 +513,8 @@ function Contacts({
   const allAllowed = draft.contacts.every((contact) => contact.allowed);
   return (
     <div className="space-y-4">
-      <h2 className="font-serif text-5xl leading-none">
-        People you <span className="italic text-gold">know</span>
-      </h2>
+      <Headline text="Hide from people you know." italic="people you know." />
+      <p className="text-sm text-mute">Hide me from all my contacts stays on. The list below is who may still see you.</p>
       <Toggle
         on={draft.hideFromContacts}
         onChange={(hideFromContacts) => onChange({ hideFromContacts })}
@@ -534,11 +563,14 @@ function Contacts({
 function Ready({ onNext }: { onNext: (notifications: boolean) => void }) {
   return (
     <div className="space-y-6">
-      <h2 className="font-serif text-5xl leading-none">
-        Tonight at <span className="italic text-gold">nine</span>
-      </h2>
-      <p className="text-mute">Your first Drop arrives at 9:00 pm IST. Three verified people. No one else is notified that you looked.</p>
-      <Button onClick={() => onNext(true)}>Turn on the evening reminder</Button>
+      <div className="flex justify-center gap-2">
+        <img src={SELF_PHOTOS[2]} alt="" className="mt-6 h-24 w-16 -rotate-6 rounded-2xl object-cover" />
+        <img src={SELF_PHOTOS[0]} alt="" className="h-32 w-24 rounded-2xl object-cover" />
+        <img src={SELF_PHOTOS[1]} alt="" className="mt-6 h-24 w-16 rotate-6 rounded-2xl object-cover" />
+      </div>
+      <Headline text="Your first Drop arrives at 9 pm." italic="arrives at" className="text-center" />
+      <p className="text-center text-mute">3 people, picked for you. Turn on notifications so you don't miss it.</p>
+      <Button onClick={() => onNext(true)}>Turn on notifications</Button>
       <Button variant="ghost" onClick={() => onNext(false)}>
         Not now
       </Button>

@@ -17,9 +17,10 @@ import {
   spendSaathiMinute,
 } from "../../state/logic";
 import { useStore } from "../../state/store";
-import { Button, Card, Chip, Toggle, inputClass } from "../../ui/primitives";
+import { Button, Card, Chip, Headline, Toggle, inputClass } from "../../ui/primitives";
+import { SELF_PHOTOS, SAMPLE_FACES } from "../../ui/photos";
 import { Screen } from "../../ui/shell";
-import { Portrait } from "../../ui/visuals";
+import { CityMark, Portrait } from "../../ui/visuals";
 import { Preferences } from "../onboarding/Onboarding";
 import { SAATHI_OPENERS } from "../../mocks/catalog";
 
@@ -39,7 +40,17 @@ export function YouHome() {
   return (
     <Screen tab title={state.discreet ? "Notes" : "You"}>
       <div className="flex items-center gap-4">
-        <Portrait name={state.draft.name || "You"} palette={["#3E2A22", "#FFB547"]} className="h-24 w-20 rounded-3xl" mode={state.displayMode} />
+        <Portrait
+          name={state.draft.name || "You"}
+          palette={["#3E2A22", "#FFB547"]}
+          src={
+            state.displayMode === "photo" && (state.preview || state.draft.photoCount > 0)
+              ? (SELF_PHOTOS[state.draft.mainPhoto] ?? SELF_PHOTOS[0])
+              : undefined
+          }
+          className="h-24 w-20 rounded-3xl"
+          mode={state.displayMode}
+        />
         <div>
           <h2 className="font-serif text-4xl">{state.discreet ? "Notes" : state.draft.name || "You"}</h2>
           <p className="text-sm text-mute">{state.streak.count} day streak · {state.matches.length} mutual</p>
@@ -254,19 +265,41 @@ export function Welcome() {
     );
   }
   return (
-    <div className="flex flex-1 flex-col px-5 pb-8 pt-10">
-      <p className="text-xs uppercase tracking-[0.22em] text-gold">Hyderabad</p>
-      <h1 className="mt-6 font-serif text-6xl leading-[0.9]">
-        Meet after <span className="italic text-gold">nine</span>.
-      </h1>
-      <p className="mt-4 text-mute">Three verified people every night. Real plans. A safety net that stays quiet until you need it. 18+.</p>
-      <div className="mt-auto space-y-3 pt-16">
+    <div className="flex flex-1 flex-col bg-ink px-4 pb-8 pt-5">
+      <div className="flex items-center justify-between">
+        <span className="font-serif text-[28px] italic leading-none">closer</span>
+        <span className="rounded-full border border-line bg-card px-3 py-1.5 text-xs text-mute">Hyderabad · 18+</span>
+      </div>
+      <div className="relative mt-4 overflow-hidden rounded-[28px] border border-line bg-card">
+        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_70%_30%,rgba(255,181,71,0.2),transparent_40%),linear-gradient(180deg,#2A1840,#160E1F)]" />
+        <CityMark className="absolute right-3 top-3 h-16 w-24 text-gold" />
+        <div className="relative flex items-end gap-2 px-4 pb-4 pt-28">
+          <img src={SAMPLE_FACES.sameera} alt="" className="h-28 w-20 rounded-2xl object-cover" />
+          <img src={SAMPLE_FACES.ananya} alt="" className="h-36 w-28 rounded-2xl object-cover" />
+          <img src={SAMPLE_FACES.divya} alt="" className="h-28 w-20 rounded-2xl object-cover" />
+        </div>
+        <div className="absolute left-4 top-3 grid h-24 w-24 place-items-center rounded-full border border-gold/80 bg-ink/80 text-center">
+          <span>
+            <span className="block text-[9px] tracking-[0.16em] text-mute">EVERY NIGHT</span>
+            <span className="block font-serif text-3xl leading-none">9 pm</span>
+            <span className="mt-1 block text-[10px] text-gold">The Drop</span>
+          </span>
+        </div>
+      </div>
+      <Headline text="Plans, not swipes." italic="not swipes." className="mt-6 !text-[52px]" />
+      <p className="mt-3 text-mute">Three people every night at 9. Like each other, and we book the table.</p>
+      <div className="mt-4 space-y-2">
+        <p className="rounded-2xl border border-line bg-card px-4 py-3 text-sm">Everyone is live-selfie checked</p>
+        <p className="rounded-2xl border border-line bg-card px-4 py-3 text-sm">A ₹99 deposit means people actually show up</p>
+      </div>
+      <div className="mt-auto space-y-3 pt-8">
         <Button onClick={() => navigate(state.draft.phone ? `/onboarding/${state.draft.step || "phone"}` : "/onboarding/phone")}>
-          Continue with your phone
+          Get started
         </Button>
         <Button variant="ghost" onClick={() => { commit(enterPreview()); navigate("/drop"); }}>
           Look around first
         </Button>
+        <p className="text-center text-xs text-mute">By continuing you agree to the community rules and privacy notice.</p>
       </div>
     </div>
   );

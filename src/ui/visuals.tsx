@@ -25,11 +25,15 @@ export function Portrait({
   palette,
   className,
   mode = "photo",
+  src,
+  compact = false,
 }: {
   name: string;
   palette: [string, string];
   className?: string;
   mode?: "photo" | "avatar" | "initials";
+  src?: string;
+  compact?: boolean;
 }) {
   const initials = name
     .split(" ")
@@ -43,6 +47,9 @@ export function Portrait({
         {initials}
       </div>
     );
+  }
+  if (src && mode === "photo") {
+    return <img src={src} alt="" className={cn("object-cover", className)} />;
   }
   if (mode === "avatar") {
     return (
@@ -64,7 +71,14 @@ export function Portrait({
       <div className="absolute -right-8 -top-10 h-36 w-36 rounded-full bg-white/10" />
       <div className="absolute -left-8 bottom-8 h-24 w-24 rounded-full bg-ink/20" />
       <div className="absolute inset-x-0 bottom-0 h-2/5 bg-gradient-to-t from-ink via-ink/50 to-transparent" />
-      <span className="absolute bottom-3 left-4 font-serif text-5xl tracking-tight text-cream">{initials}</span>
+      <span
+        className={cn(
+          "absolute font-serif tracking-tight text-cream",
+          compact ? "inset-0 grid place-items-center text-2xl" : "bottom-3 left-4 text-5xl",
+        )}
+      >
+        {initials}
+      </span>
     </div>
   );
 }
