@@ -127,12 +127,6 @@ export function YouHome() {
         <button type="button" onClick={() => navigate("/you/settings")} className="flex min-h-11 w-full items-center gap-3 rounded-2xl border border-coral/40 px-4 text-left text-coral">
           <Trash2 size={16} /> Delete account
         </button>
-        {state.preview ? null : (
-          <button type="button" onClick={() => navigate("/admin")} className="flex min-h-11 w-full items-center rounded-2xl border border-line px-4 text-left">
-            Staff desk
-            <ChevronRight size={16} className="ml-auto text-mute" />
-          </button>
-        )}
       </div>
     </Screen>
   );

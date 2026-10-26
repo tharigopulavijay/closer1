@@ -10,7 +10,7 @@ import { Button, Card, Chip, Headline, Sheet } from "../../ui/primitives";
 import { samplePhoto } from "../../ui/photos";
 import { Screen } from "../../ui/shell";
 import { Portrait } from "../../ui/visuals";
-import type { Away } from "../../lib/types";
+import { PLAN_KINDS, type Away } from "../../lib/types";
 
 export function PlansHome() {
   const { state } = useStore();
@@ -62,7 +62,9 @@ export function PlansHome() {
                 />
               ) : null}
               <span className="min-w-0 flex-1">
-                <span className="block font-semibold">{plan.kind === "coffee" ? "Coffee" : plan.kind} with {person?.name.split(" ")[0] ?? "someone"}</span>
+                <span className="block font-semibold">
+                  {PLAN_KINDS.find((item) => item.id === plan.kind)?.label ?? "A plan"} with {person?.name.split(" ")[0] ?? "someone"}
+                </span>
                 <span className="mt-1 flex items-center gap-1 text-sm text-mute"><CalendarDays size={14} /> {plan.slot}</span>
                 <span className="flex items-center gap-1 text-sm text-mute"><MapPin size={14} /> {venue.name}, {venue.area}</span>
                 <span className={`mt-2 inline-flex min-h-9 items-center gap-1 rounded-full px-2.5 text-xs font-semibold ${plan.deposit === "paid" ? "bg-mint/15 text-mint" : plan.deposit === "refunded" ? "bg-card2 text-mute" : "bg-gold text-ink"}`}>

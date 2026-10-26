@@ -116,10 +116,10 @@ export function LiveRoom() {
   if (!room || state.endedRooms.includes(room.id)) {
     return <Screen title="Room" back="/rooms"><p>This room has ended.</p></Screen>;
   }
+  const speakers = ["Imran", "Laya", "Meher"].filter((name) => name !== room.host).slice(0, 2);
   const seats = [
     { name: room.host, role: "Host", photo: samplePhoto(state.preview, room.host.toLowerCase()) },
-    { name: "Imran", role: "Speaker", photo: samplePhoto(state.preview, "imran") },
-    { name: "Laya", role: "Speaker", photo: samplePhoto(state.preview, "laya") },
+    ...speakers.map((name) => ({ name, role: "Speaker", photo: samplePhoto(state.preview, name.toLowerCase()) })),
     { name: "You", role: hand ? "Hand raised" : "Listener", photo: state.preview ? SELF_PHOTOS[0] : undefined },
   ];
   return (
