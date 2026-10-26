@@ -1,0 +1,54 @@
+@import "tailwindcss";
+
+@theme {
+  --font-serif: "Instrument Serif", Georgia, serif;
+  --font-sans: "Manrope", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+
+  --color-closer-bg: #160E1F;
+  --color-closer-card: #1E1428;
+  --color-closer-card-alt: #241830;
+  --color-closer-border: #3A2A48;
+  --color-closer-marigold: #FFB547;
+  --color-closer-mint: #9FD7C7;
+  --color-closer-lavender: #C9A7FF;
+  --color-closer-coral: #FF6B5E;
+  --color-closer-text: #F7EFE6;
+  --color-closer-muted: #B9A9C4;
+}
+
+body {
+  font-family: var(--font-sans);
+  background-color: #160E1F;
+  color: #F7EFE6;
+  user-select: none;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Hide scrollbars for slick mobile app feel */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* Custom pulse animations */
+@keyframes soft-pulse {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.04); opacity: 0.85; }
+}
+
+.animate-soft-pulse {
+  animation: soft-pulse 3s infinite ease-in-out;
+}
+
+@keyframes wave-bounce {
+  0%, 100% { height: 6px; }
+  50% { height: 28px; }
+}
+
+.animate-wave-bar {
+  animation: wave-bounce 1.2s infinite ease-in-out;
+}
