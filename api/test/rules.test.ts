@@ -1,7 +1,7 @@
 import { env } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
 import { deliverMessage, insertAiReport } from "../src/policy";
-import { A, B, C, O1, O2, O3, S, T, U, V, api, count, login, reset } from "./harness";
+import { A, B, C, O1, O2, O3, S, T, U, V, api, count, login, reset, sendForm, tinyPng } from "./harness";
 
 let token: Record<string, string>;
 
@@ -266,10 +266,14 @@ describe("database rules over HTTP", () => {
     const rows = (buckets.json as { buckets: { id: string; public: boolean }[] }).buckets;
     expect(rows.map((row) => row.id)).toEqual(["photos", "selfies", "voice"]);
     expect(rows.every((row) => row.public === false)).toBe(true);
-    expect((await api("/media", { token: token[A], body: { bucket: "photos", name: `${A}/pic.jpg` } })).status).toBe(200);
-    expect((await api("/media", { token: token[A] })).json).toMatchObject({ objects: [{ name: `${A}/pic.jpg` }] });
-    expect((await api("/media", { token: token[B] })).json).toEqual({ objects: [] });
-    expect((await api("/media", { token: token[B], service: true })).json).toMatchObject({ objects: [{ name: `${A}/pic.jpg` }] });
-    expect((await api("/media", { token: token[A], body: { bucket: "voice", name: `${B}/clip.webm` } })).text).toMatch(/row-level security/);
+    const form = new FormData();
+    form.set("kind", "photo");
+    form.set("file", new File([tinyPng()], "a.png", { type: "image/png" }));
+    const uploaded = await sendForm("/media", token[A], form);
+    expect(uploaded.status).toBe(200);
+    const key = (uploaded.json as { key: string }).key;
+    expect((await api(`/media/${key}`, { token: token[A] })).status).toBe(200);
+    expect((await api(`/media/${key}`, { token: token[B] })).status).toBe(200);
+    expect((await api(`/media/${key}`, { token: token[U] })).status).toBe(404);
   });
 });

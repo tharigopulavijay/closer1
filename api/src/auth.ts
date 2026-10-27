@@ -7,7 +7,7 @@ const OTP_LIMIT = 3;
 const OTP_ATTEMPTS = 5;
 const SESSION_MS = 30 * 24 * 60 * 60 * 1000;
 
-export async function requestOtp(env: Env, phone: string, now = new Date()) {
+export async function requestOtp(env: Pick<Env, "DB" | "DEV_OTP">, phone: string, now = new Date()) {
   const digits = phoneDigits(phone);
   if (digits.length < 10) fail("bad phone", 400);
   const phoneHash = await sha256(digits);
@@ -32,7 +32,7 @@ export async function requestOtp(env: Env, phone: string, now = new Date()) {
   return { sent: !dev };
 }
 
-export async function verifyOtp(env: Env, phone: string, code: string, now = new Date()) {
+export async function verifyOtp(env: Pick<Env, "DB" | "DEV_OTP">, phone: string, code: string, now = new Date()) {
   const digits = phoneDigits(phone);
   if (digits.length < 10 || !code.trim()) fail("bad phone", 400);
   const phoneHash = await sha256(digits);

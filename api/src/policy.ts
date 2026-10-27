@@ -3,7 +3,6 @@ import { fail } from "./env";
 import { addDays, daysBetween, isAdultDob, istDate, istMonth, slotInstant } from "./time";
 
 const MILESTONES = [7, 30, 90, 180, 365];
-const BUCKETS = ["photos", "voice", "selfies"];
 
 type Profile = {
   id: string;
@@ -351,7 +350,7 @@ export async function fileReport(
     .run();
 }
 
-export async function insertAiReport(db: D1Database, reporterId: string, againstId: string, category: string, detail: string) {
+export async function insertAiReport(db: D1Database, reporterId: string | null, againstId: string, category: string, detail: string) {
   await db
     .prepare(
       `insert into reports (id, reporter_id, against_id, category, severe, detail, status, source, created_at)
@@ -605,32 +604,8 @@ export async function todayDrop(db: D1Database, userId: string, now = new Date()
   return { date, picks: picks.results.map((pick) => ({ personId: pick.person_id, position: pick.position })) };
 }
 
-const MEDIA = BUCKETS;
-
 export async function listBuckets(db: D1Database) {
   const rows = await db.prepare(`select id, public from media_buckets order by id`).all<{ id: string; public: number }>();
   return rows.results.map((row) => ({ id: row.id, public: Boolean(row.public) }));
 }
 
-export async function putMedia(db: D1Database, userId: string, bucket: string, name: string) {
-  await assertActive(db, userId);
-  if (!MEDIA.includes(bucket)) fail("bad bucket", 400);
-  const folder = name.split("/")[0];
-  if (folder !== userId) fail("row-level security");
-  await db
-    .prepare(`insert into media_objects (id, bucket_id, name, owner_id) values (?, ?, ?, ?)`)
-    .bind(crypto.randomUUID(), bucket, name, userId)
-    .run();
-}
-
-export async function listMedia(db: D1Database, userId: string, asService: boolean) {
-  if (asService) {
-    const rows = await db.prepare(`select name from media_objects`).all<{ name: string }>();
-    return rows.results;
-  }
-  const rows = await db
-    .prepare(`select name from media_objects where owner_id = ? or name like ?`)
-    .bind(userId, `${userId}/%`)
-    .all<{ name: string }>();
-  return rows.results;
-}

@@ -273,7 +273,9 @@ CREATE TABLE IF NOT EXISTS media_objects (
   id TEXT PRIMARY KEY,
   bucket_id TEXT NOT NULL REFERENCES media_buckets (id),
   name TEXT NOT NULL,
-  owner_id TEXT NOT NULL
+  owner_id TEXT NOT NULL,
+  bytes INTEGER NOT NULL DEFAULT 0,
+  kind TEXT NOT NULL DEFAULT 'photo'
 );
 
 INSERT OR IGNORE INTO media_buckets (id, name, public) VALUES

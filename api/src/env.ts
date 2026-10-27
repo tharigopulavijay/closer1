@@ -1,7 +1,13 @@
 export interface Env {
   DB: D1Database;
+  MEDIA: R2Bucket;
+  PLAN_CHAT: DurableObjectNamespace;
   DEV_OTP?: string;
   SERVICE_TOKEN?: string;
+  MSG91_KEY?: string;
+  RAZORPAY_WEBHOOK_SECRET?: string;
+  LIVEKIT_API_KEY?: string;
+  LIVEKIT_API_SECRET?: string;
 }
 
 export class PolicyError extends Error {

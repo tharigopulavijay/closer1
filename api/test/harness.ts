@@ -119,16 +119,41 @@ export async function login(userId: string) {
 
 export async function api(
   path: string,
-  init: { method?: string; token?: string; body?: unknown; service?: boolean } = {},
+  init: { method?: string; token?: string; body?: unknown; raw?: string; headers?: Record<string, string>; service?: boolean } = {},
 ) {
-  const headers = new Headers();
-  if (init.body !== undefined) headers.set("content-type", "application/json");
+  const headers = new Headers(init.headers);
+  if (init.body !== undefined || init.raw !== undefined) headers.set("content-type", headers.get("content-type") ?? "application/json");
   if (init.token) headers.set("authorization", `Bearer ${init.token}`);
   if (init.service) headers.set("x-closer-service", "service-test");
   const res = await SELF.fetch(`http://closer.test${path}`, {
-    method: init.method ?? (init.body === undefined ? "GET" : "POST"),
+    method: init.method ?? (init.body === undefined && init.raw === undefined ? "GET" : "POST"),
     headers,
-    body: init.body === undefined ? undefined : JSON.stringify(init.body),
+    body: init.raw ?? (init.body === undefined ? undefined : JSON.stringify(init.body)),
+  });
+  const text = await res.text();
+  let json: unknown = null;
+  if (text) {
+    try {
+      json = JSON.parse(text);
+    } catch {
+      json = null;
+    }
+  }
+  return { status: res.status, text, json };
+}
+
+export function tinyPng() {
+  const binary = atob("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==");
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+  return bytes;
+}
+
+export async function sendForm(path: string, token: string, form: FormData) {
+  const res = await SELF.fetch(`http://closer.test${path}`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${token}` },
+    body: form,
   });
   const text = await res.text();
   let json: unknown = null;

@@ -10,6 +10,9 @@ export default defineWorkersConfig({
           bindings: {
             DEV_OTP: "482913",
             SERVICE_TOKEN: "service-test",
+            RAZORPAY_WEBHOOK_SECRET: "razorpay-test-secret",
+            LIVEKIT_API_KEY: "lk-test-key",
+            LIVEKIT_API_SECRET: "lk-test-secret",
           },
         },
       },

@@ -1,8 +1,13 @@
 import { Hono } from "hono";
 import { logout, requestOtp, userIdForToken, verifyOtp } from "./auth";
+import { PlanChat } from "./chat";
+import { buildTomorrowDrop } from "./drop";
 import { PolicyError, fail, type Env } from "./env";
+import { issueRoomToken } from "./livekit";
+import { readMedia, storeMedia } from "./media";
 import {
   addTrusted,
+  assertChatAccess,
   blockPerson,
   claimGift,
   clearAway,
@@ -14,11 +19,9 @@ import {
   insertDebrief,
   keepChat,
   listBuckets,
-  listMedia,
   listTrusted,
   listVisibleIds,
   markDepositPaid,
-  putMedia,
   readPhotos,
   readProfile,
   recordActivity,
@@ -28,6 +31,8 @@ import {
   todayDrop,
   updateProfile,
 } from "./policy";
+import { handleRazorpayWebhook } from "./razorpay";
+import { raiseSos } from "./sos";
 
 const app = new Hono<{ Bindings: Env; Variables: { userId: string } }>();
 
@@ -43,7 +48,8 @@ function service(c: { env: Env; req: { header: (name: string) => string | undefi
 }
 
 app.use("*", async (c, next) => {
-  if (c.req.path.startsWith("/auth") || c.req.path.startsWith("/service")) {
+  const path = c.req.path;
+  if (path.startsWith("/auth") || path.startsWith("/service") || path.startsWith("/webhooks") || path.startsWith("/trusted-contacts/confirm")) {
     await next();
     return;
   }
@@ -97,6 +103,16 @@ app.post("/plans", async (c) => {
   const id = await createPlan(c.env.DB, c.get("userId"), body.personId ?? "", body.venueId ?? "", body.slot ?? "", body.kind ?? "");
   const deposit = await c.env.DB.prepare(`select status from deposits where plan_id = ? and user_id = ?`).bind(id, c.get("userId")).first<{ status: string }>();
   return c.json({ id, deposit: deposit?.status ?? "unpaid" });
+});
+
+app.get("/plans/:id/chat", async (c) => {
+  const planId = c.req.param("id");
+  await assertChatAccess(c.env.DB, c.get("userId"), planId);
+  const headers = new Headers(c.req.raw.headers);
+  headers.set("x-closer-user", c.get("userId"));
+  headers.set("x-closer-plan", planId);
+  const stub = c.env.PLAN_CHAT.get(c.env.PLAN_CHAT.idFromName(planId));
+  return stub.fetch(new Request(c.req.url, { method: "GET", headers }));
 });
 
 app.post("/plans/:id/keep", async (c) => {
@@ -187,13 +203,30 @@ app.delete("/account", async (c) => {
 app.get("/media/buckets", async (c) => c.json({ buckets: await listBuckets(c.env.DB) }));
 
 app.post("/media", async (c) => {
-  const body = await c.req.json<{ bucket?: string; name?: string }>();
-  await putMedia(c.env.DB, c.get("userId"), body.bucket ?? "", body.name ?? "");
+  const saved = await storeMedia(c.env.DB, c.env.MEDIA, c.get("userId"), await c.req.formData());
+  return c.json(saved);
+});
+
+app.get("/media/:key", async (c) => readMedia(c.env.DB, c.env.MEDIA, c.get("userId"), c.req.param("key")));
+
+app.post("/sos", async (c) => {
+  const body = await c.req.json<{ planId?: string; lat?: number; lng?: number }>();
+  return c.json(await raiseSos(c.env.DB, c.env, c.get("userId"), body));
+});
+
+app.get("/trusted-contacts/confirm/:token", async (c) => {
+  await confirmTrustedContact(c.env.DB, c.req.param("token"));
   return c.json({ ok: true });
 });
 
-app.get("/media", async (c) => {
-  return c.json({ objects: await listMedia(c.env.DB, c.get("userId"), service(c)) });
+app.post("/webhooks/razorpay", async (c) => {
+  const raw = await c.req.text();
+  return c.json(await handleRazorpayWebhook(c.env.DB, c.env.RAZORPAY_WEBHOOK_SECRET, raw, c.req.header("x-razorpay-signature") ?? ""));
+});
+
+app.post("/rooms/:id/token", async (c) => {
+  const token = await issueRoomToken(c.env.DB, c.env.LIVEKIT_API_KEY, c.env.LIVEKIT_API_SECRET, c.get("userId"), c.req.param("id"));
+  return c.json({ token });
 });
 
 app.post("/service/deposits/:planId/pay", async (c) => {
@@ -218,4 +251,11 @@ app.get("/service/trusted-contacts/:id/token", async (c) => {
   return c.json({ token: row?.confirm_token ?? null });
 });
 
-export default app;
+export { PlanChat };
+
+export default {
+  fetch: (request: Request, env: Env, ctx: ExecutionContext) => app.fetch(request, env, ctx),
+  scheduled: (_event: ScheduledController, env: Env, ctx: ExecutionContext) => {
+    ctx.waitUntil(buildTomorrowDrop(env.DB, new Date(_event.scheduledTime)));
+  },
+};
