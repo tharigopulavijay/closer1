@@ -1,5 +1,6 @@
 import { env, SELF } from "cloudflare:test";
 import schema from "../migrations/0001_schema.sql?raw";
+import c4 from "../migrations/0002_c4.sql?raw";
 import { sha256 } from "../src/crypto";
 
 export const A = "11111111-1111-4111-8111-111111111111";
@@ -56,12 +57,23 @@ async function exec(sql: string) {
   for (const statement of statements(sql)) await env.DB.exec(statement.replace(/\s+/g, " "));
 }
 
+async function applyC4() {
+  const info = await env.DB.prepare(`pragma table_info(deposits)`).all<{ name: string }>();
+  const hasOrder = info.results.some((column) => column.name === "order_id");
+  for (const statement of statements(c4)) {
+    if (/^alter table/i.test(statement) && hasOrder) continue;
+    await env.DB.exec(statement.replace(/\s+/g, " "));
+  }
+}
+
 export async function reset() {
   await exec(schema);
+  await applyC4();
   await exec(`
     PRAGMA foreign_keys = OFF;
     DELETE FROM media_objects;
     DELETE FROM messages;
+    DELETE FROM chat_tickets;
     DELETE FROM deposits;
     DELETE FROM debriefs;
     DELETE FROM safety_sessions;

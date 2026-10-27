@@ -39,17 +39,16 @@ function goLogin() {
   loc.assign("/login");
 }
 
-export function wsUrl(path: string) {
+export function wsUrl(path: string, ticket: string) {
   const base = apiBase();
-  const token = sessionToken();
   const join = path.includes("?") ? "&" : "?";
-  const withToken = token ? `${path}${join}token=${encodeURIComponent(token)}` : path;
-  if (base.startsWith("https://")) return `${base.replace("https://", "wss://")}${withToken}`;
-  if (base.startsWith("http://")) return `${base.replace("http://", "ws://")}${withToken}`;
+  const withTicket = `${path}${join}ticket=${encodeURIComponent(ticket)}`;
+  if (base.startsWith("https://")) return `${base.replace("https://", "wss://")}${withTicket}`;
+  if (base.startsWith("http://")) return `${base.replace("http://", "ws://")}${withTicket}`;
   const loc = globalThis.location;
   const proto = loc?.protocol === "https:" ? "wss:" : "ws:";
   const host = loc?.host ?? "localhost:5173";
-  return `${proto}//${host}${base}${withToken}`;
+  return `${proto}//${host}${base}${withTicket}`;
 }
 
 export async function request<T>(path: string, init: { method?: string; body?: unknown; form?: FormData } = {}): Promise<T> {
@@ -158,6 +157,7 @@ export const api = {
       `/plans/${planId}/messages${before ? `?before=${encodeURIComponent(before)}` : ""}`,
     ),
   keep: (planId: string) => request<{ ok: boolean }>(`/plans/${planId}/keep`, { method: "POST" }),
+  chatTicket: (planId: string) => request<{ ticket: string; expiresAt: string }>(`/plans/${planId}/chat-ticket`, { method: "POST" }),
   debrief: (planId: string, body: { feel: string; again: string; note: string }) =>
     request<{ ok: boolean }>(`/plans/${planId}/debrief`, { body }),
   report: (body: { againstId: string; category: string; detail: string; severe?: boolean }) => request<{ ok: boolean }>("/reports", { body }),

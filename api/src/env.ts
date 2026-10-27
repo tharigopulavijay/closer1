@@ -8,6 +8,10 @@ export interface Env {
   SERVICE_TOKEN?: string;
   MSG91_KEY?: string;
   RAZORPAY_WEBHOOK_SECRET?: string;
+  /** Razorpay key id. A secret in production; never commit a real value. */
+  RAZORPAY_KEY_ID?: string;
+  /** Razorpay key secret. A secret in production; never commit a real value. */
+  RAZORPAY_KEY_SECRET?: string;
   LIVEKIT_API_KEY?: string;
   LIVEKIT_API_SECRET?: string;
   /** Comma-separated browser origins. Empty means no cross-origin browser access. */

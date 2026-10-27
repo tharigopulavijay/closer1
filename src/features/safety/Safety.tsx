@@ -78,7 +78,7 @@ export function SafetySetup() {
   return (
     <Screen title="Trusted people" back="/safety">
       <Headline text="Who should we call?" italic="call" />
-      <p className="mt-3 text-sm text-mute">Up to three. They confirm from an SMS link before they can be alerted.</p>
+      <p className="mt-3 text-sm text-mute">Up to five. They confirm from an SMS link before they can be alerted.</p>
       <div className="mt-4 flex gap-2">
         {([30, 60, 90] as const).map((minutes) => (
           <Chip key={minutes} active={state.checkInterval === minutes} onClick={() => commit(setCheckInterval(current(), minutes))}>
@@ -100,7 +100,7 @@ export function SafetySetup() {
           </Card>
         ))}
       </div>
-      {state.trusted.length < 3 ? (
+      {state.trusted.length < 5 ? (
         <div className="mt-4 space-y-3">
           <input className={inputClass} placeholder="Name" value={name} onChange={(event) => setName(event.target.value)} />
           <input className={inputClass} placeholder="Mobile" value={phone} onChange={(event) => setPhone(event.target.value)} />

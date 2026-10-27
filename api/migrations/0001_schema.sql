@@ -1,5 +1,5 @@
--- SQLite port of supabase/migrations/0001_init.sql, 0002_rules.sql and
--- 0003_hardening.sql, plus the auth tables for the Worker.
+-- SQLite schema for the Worker, plus the auth tables.
+-- The earlier Postgres migrations are gone; this file is the source of truth.
 -- Foreign keys match the final Postgres shape: safety evidence (reports
 -- against a person, strikes, bans, sos) keeps its id when a user is deleted.
 -- Rules live in api/src/policy.ts. SQLite has no row level security.

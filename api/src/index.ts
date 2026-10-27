@@ -13,11 +13,13 @@ import {
   clearAway,
   confirmReport,
   confirmTrustedContact,
+  consumeChatTicket,
   createPlan,
   deleteAccount,
   deleteProfilePhoto,
   fileReport,
   insertDebrief,
+  issueChatTicket,
   keepChat,
   listBuckets,
   listMatches,
@@ -44,7 +46,7 @@ import {
   verifyMember,
   verifyQueue,
 } from "./policy";
-import { handleRazorpayWebhook } from "./razorpay";
+import { createDepositOrder, handleRazorpayWebhook } from "./razorpay";
 import { raiseSos } from "./sos";
 
 const app = new Hono<{ Bindings: Env; Variables: { userId: string } }>();
@@ -98,8 +100,12 @@ app.use("*", async (c, next) => {
     return;
   }
   const header = c.req.header("authorization");
-  const queryToken = path.endsWith("/chat") ? c.req.query("token") : "";
-  const userId = await userIdForToken(c.env.DB, header || (queryToken ? `Bearer ${queryToken}` : undefined));
+  const ticket = path.endsWith("/chat") ? (c.req.query("ticket") ?? "") : "";
+  if (ticket) {
+    await next();
+    return;
+  }
+  const userId = await userIdForToken(c.env.DB, header);
   if (!userId) return c.json({ error: "auth required" }, 401);
   c.set("userId", userId);
   await next();
@@ -191,11 +197,22 @@ app.post("/plans", async (c) => {
   return c.json({ id, deposit: deposit?.status ?? "unpaid" });
 });
 
+app.post("/plans/:id/chat-ticket", async (c) => {
+  return c.json(await issueChatTicket(c.env.DB, c.get("userId"), c.req.param("id")));
+});
+
+app.post("/plans/:id/deposit/order", async (c) => {
+  return c.json(await createDepositOrder(c.env.DB, c.env, c.get("userId"), c.req.param("id")));
+});
+
 app.get("/plans/:id/chat", async (c) => {
+  if (c.req.header("Upgrade") !== "websocket") return c.json({ error: "expected websocket" }, 426);
   const planId = c.req.param("id");
-  await assertChatAccess(c.env.DB, c.get("userId"), planId);
+  const ticket = c.req.query("ticket") ?? "";
+  const userId = ticket ? await consumeChatTicket(c.env.DB, planId, ticket) : c.get("userId");
+  await assertChatAccess(c.env.DB, userId, planId);
   const headers = new Headers(c.req.raw.headers);
-  headers.set("x-closer-user", c.get("userId"));
+  headers.set("x-closer-user", userId);
   headers.set("x-closer-plan", planId);
   const stub = c.env.PLAN_CHAT.get(c.env.PLAN_CHAT.idFromName(planId));
   return stub.fetch(new Request(c.req.url, { method: "GET", headers }));
@@ -242,9 +259,32 @@ app.delete("/away", async (c) => {
   return c.json({ ok: true });
 });
 
+function confirmPage(token: string) {
+  const button = token
+    ? `<form method="post" action="/trusted-contacts/confirm?token=${encodeURIComponent(token)}"><button type="submit">Yes, I'll be their trusted contact</button></form>`
+    : "<p>This link is missing a token.</p>";
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="robots" content="noindex"><title>Trusted contact</title></head><body><p>Someone asked you to be their trusted contact.</p>${button}</body></html>`;
+}
+
+function noStore(c: { header: (name: string, value: string) => void }) {
+  c.header("cache-control", "no-store");
+  c.header("x-robots-tag", "noindex");
+}
+
 app.get("/trusted-contacts", async (c) => c.json({ contacts: await listTrusted(c.env.DB, c.get("userId")) }));
 
+app.get("/trusted-contacts/confirm", async (c) => {
+  noStore(c);
+  return c.html(confirmPage(c.req.query("token") ?? ""));
+});
+
 app.post("/trusted-contacts/confirm", async (c) => {
+  const queryToken = c.req.query("token") ?? "";
+  if (queryToken) {
+    await confirmTrustedContact(c.env.DB, queryToken);
+    noStore(c);
+    return c.html(`<!doctype html><html><head><meta name="robots" content="noindex"><title>Confirmed</title></head><body><p>You are a trusted contact.</p></body></html>`);
+  }
   if (!service(c)) return c.json({ error: "permission denied" }, 403);
   const body = await c.req.json<{ token?: string }>();
   await confirmTrustedContact(c.env.DB, body.token ?? "");

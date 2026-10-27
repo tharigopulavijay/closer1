@@ -396,8 +396,16 @@ export function openPlanChat(
   let socket: WebSocket | null = null;
   let stopped = false;
   let timer = 0;
-  const connect = () => {
-    socket = new WebSocket(wsUrl(`/plans/${planId}/chat`));
+  const connect = async () => {
+    let ticket = "";
+    try {
+      ticket = (await api.chatTicket(planId)).ticket;
+    } catch {
+      if (!stopped) timer = window.setTimeout(() => void connect(), 1500);
+      return;
+    }
+    if (stopped) return;
+    socket = new WebSocket(wsUrl(`/plans/${planId}/chat`, ticket));
     socket.onmessage = (event) => {
       try {
         const data = JSON.parse(String(event.data)) as { type?: string; reason?: string; from?: string; body?: string };
@@ -408,10 +416,10 @@ export function openPlanChat(
       }
     };
     socket.onclose = () => {
-      if (!stopped) timer = window.setTimeout(connect, 1500);
+      if (!stopped) timer = window.setTimeout(() => void connect(), 1500);
     };
   };
-  connect();
+  void connect();
   return {
     send(body: string) {
       socket?.send(JSON.stringify({ body }));
