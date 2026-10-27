@@ -20,7 +20,7 @@ cp api/.dev.vars.example api/.dev.vars
 npm run api:dev
 ```
 
-Apply `api/migrations/0001_schema.sql` to the local D1 database (`wrangler d1 execute` against the database in `api/wrangler.jsonc`). In another terminal:
+Apply `api/migrations/0001_schema.sql` and `api/migrations/0002_c4.sql` to the local D1 database (`wrangler d1 migrations apply` against the database in `api/wrangler.jsonc`). In another terminal:
 
 ```bash
 VITE_API_URL=/api npm run dev
@@ -31,7 +31,7 @@ Vite proxies `/api` to `http://127.0.0.1:8787`. Sign in with any Indian mobile n
 Optional:
 
 - `VITE_LIVEKIT_URL` for voice rooms
-- Razorpay, SMS and the liveness vendor stay behind `payDeposit`, `verifySelfie` and the edge functions
+- Razorpay (`RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`, `RAZORPAY_WEBHOOK_SECRET`), SMS and the liveness check stay on the server. Do not commit those secrets.
 
 ## What is enforced
 

@@ -1,4 +1,4 @@
-import { phoneDigits, sha256 } from "./crypto";
+import { phoneDigits, randomToken, sha256 } from "./crypto";
 import { fail } from "./env";
 import { addDays, ageYears, daysBetween, isAdultDob, istDate, istMonth, slotInstant } from "./time";
 
@@ -374,6 +374,62 @@ export async function assertChatAccess(db: D1Database, userId: string, planId: s
   return plan;
 }
 
+const CHAT_TICKET_MS = 60_000;
+
+/** A chat socket credential. The raw ticket is returned once and only its hash is stored. */
+export async function issueChatTicket(db: D1Database, userId: string, planId: string) {
+  await assertChatAccess(db, userId, planId);
+  const ticket = randomToken();
+  const now = new Date();
+  const expiresAt = new Date(now.getTime() + CHAT_TICKET_MS).toISOString();
+  // Each reconnect issues a ticket, so this person's spent and stale ones are cleared as we go.
+  await db.batch([
+    db.prepare(`delete from chat_tickets where user_id = ? and (used_at is not null or expires_at <= ?)`).bind(userId, now.toISOString()),
+    db
+      .prepare(`insert into chat_tickets (token_hash, plan_id, user_id, expires_at) values (?, ?, ?, ?)`)
+      .bind(await sha256(ticket), planId, userId, expiresAt),
+  ]);
+  return { ticket, expiresAt };
+}
+
+/** Marks a ticket used. A ticket for another plan, an expired ticket, or a second use is refused. */
+export async function consumeChatTicket(db: D1Database, planId: string, ticket: string) {
+  const trimmed = ticket.trim();
+  if (!trimmed) fail("auth required", 401);
+  const hash = await sha256(trimmed);
+  const now = new Date().toISOString();
+  const result = await db
+    .prepare(
+      `update chat_tickets set used_at = ? where token_hash = ? and plan_id = ? and used_at is null and expires_at > ?`,
+    )
+    .bind(now, hash, planId, now)
+    .run();
+  if (Number(result.meta.changes ?? 0) < 1) fail("auth required", 401);
+  const row = await db
+    .prepare(`select user_id from chat_tickets where token_hash = ?`)
+    .bind(hash)
+    .first<{ user_id: string }>();
+  if (!row) fail("auth required", 401);
+  return row.user_id;
+}
+
+export async function assertDepositPayer(db: D1Database, userId: string, planId: string) {
+  await assertActive(db, userId);
+  const plan = await db.prepare(`select owner_id, person_id from plans where id = ?`).bind(planId).first<Plan>();
+  if (!plan) fail("missing plan", 404);
+  if (plan.owner_id !== userId && plan.person_id !== userId) fail("not in plan");
+  const row = await db
+    .prepare(`select status from deposits where plan_id = ? and user_id = ?`)
+    .bind(planId, userId)
+    .first<{ status: string }>();
+  if (!row) fail("missing deposit", 404);
+  if (row.status === "paid") fail("already paid");
+}
+
+export async function saveDepositOrder(db: D1Database, planId: string, userId: string, orderId: string) {
+  await db.prepare(`update deposits set order_id = ? where plan_id = ? and user_id = ?`).bind(orderId, planId, userId).run();
+}
+
 /** A block either way, or a ban, ends the chat at once, even mid-conversation. */
 async function partnerReachable(db: D1Database, plan: Plan, userId: string) {
   const partner = plan.owner_id === userId ? plan.person_id : plan.owner_id;
@@ -668,6 +724,7 @@ export async function deleteAccount(db: D1Database, userId: string) {
     db.prepare(`delete from contact_hashes where owner_id = ?`).bind(userId),
     db.prepare(`delete from contact_allowlist where owner_id = ?`).bind(userId),
     db.prepare(`delete from trusted_contacts where user_id = ?`).bind(userId),
+    db.prepare(`delete from chat_tickets where user_id = ?`).bind(userId),
     db.prepare(`delete from away_status where user_id = ?`).bind(userId),
     db.prepare(`delete from streaks where user_id = ?`).bind(userId),
     db.prepare(`delete from likes where from_id = ? or to_id = ?`).bind(userId, userId),

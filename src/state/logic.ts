@@ -409,7 +409,7 @@ export function clearAway(state: AppState) {
 }
 
 export function addTrusted(state: AppState, name: string, phone: string) {
-  if (state.trusted.length >= 3) return state;
+  if (state.trusted.length >= 5) return state;
   return {
     ...state,
     trusted: [...state.trusted, { id: uid("tc"), name, phone, confirmed: false }],

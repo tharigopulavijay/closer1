@@ -201,9 +201,14 @@ describe("c2", () => {
       body: { personId: B, venueId: "heartcup", slot: "Sat · 8:00 pm", kind: "coffee" },
     });
     const plan = (created.json as { id: string }).id;
+    await env.DB.prepare(`update deposits set order_id = 'order_rz_1' where plan_id = ? and user_id = ?`).bind(plan, A).run();
     const raw = JSON.stringify({
       event: "payment.captured",
-      payload: { payment: { entity: { id: "pay_rz_1", notes: { plan_id: plan, user_id: A } } } },
+      payload: {
+        payment: {
+          entity: { id: "pay_rz_1", amount: 9900, currency: "INR", order_id: "order_rz_1", notes: { plan_id: plan, user_id: A } },
+        },
+      },
     });
     const signature = await hmacSha256Hex("razorpay-test-secret", raw);
     const paid = await api("/webhooks/razorpay", { method: "POST", raw, headers: { "x-razorpay-signature": signature } });

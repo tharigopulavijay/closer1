@@ -12,6 +12,8 @@ export default defineWorkersConfig({
             DEV_OTP: "482913",
             SERVICE_TOKEN: "service-test",
             RAZORPAY_WEBHOOK_SECRET: "razorpay-test-secret",
+            RAZORPAY_KEY_ID: "rzp_test_key",
+            RAZORPAY_KEY_SECRET: "rzp_test_secret",
             LIVEKIT_API_KEY: "lk-test-key",
             LIVEKIT_API_SECRET: "lk-test-secret",
             ALLOWED_ORIGINS: "http://localhost:5173",
