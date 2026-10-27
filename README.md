@@ -1,6 +1,6 @@
 # Closer
 
-A mobile-first dating and friends app for Hyderabad. React, TypeScript, Vite and Tailwind. The phone frame is 430px wide. Supabase, LiveKit and boardgame.io are wired as the production path; the preview runs on local data so every screen works before keys exist.
+A mobile-first dating and friends app for Hyderabad. React, TypeScript, Vite and Tailwind. The phone frame is 430px wide. The live path is a Cloudflare Worker; the preview runs on local data so every screen works before `VITE_API_URL` is set.
 
 ## Run
 
@@ -11,7 +11,22 @@ npm test
 npm run dev
 ```
 
-Open the app and choose **Look around first** to enter a verified preview profile, or start with a phone number. The preview OTP is `482913` until `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` are set. Do not put real keys in the repo.
+Open the app and choose **Look around first** to enter a verified preview profile, or start with a phone number. The preview OTP is `482913` while `VITE_API_URL` is unset. Do not put real keys in the repo.
+
+## Run live locally
+
+```bash
+cp api/.dev.vars.example api/.dev.vars
+npm run api:dev
+```
+
+Apply `api/migrations/0001_schema.sql` to the local D1 database (`wrangler d1 execute` against the database in `api/wrangler.jsonc`). In another terminal:
+
+```bash
+VITE_API_URL=/api npm run dev
+```
+
+Vite proxies `/api` to `http://127.0.0.1:8787`. Sign in with any Indian mobile number and the `DEV_OTP` from `api/.dev.vars` (`123456` in the example). `DEV_OTP` works only when `ENVIRONMENT` is `development` or `test`.
 
 Optional:
 

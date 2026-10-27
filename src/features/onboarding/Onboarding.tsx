@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { isAdult, maxDob } from "../../lib/age";
-import { backendConfigured } from "../../lib/env";
+import { isLive } from "../../lib/env";
 import { contactPayload, hashPhone, normaliseE164 } from "../../lib/hash";
 import { AREAS, FOODS, LANGUAGES, emptyDraft, type Draft, type Gender, type Intent, type ShowMe } from "../../lib/types";
 import { completeOnboarding, saveDraft } from "../../state/logic";
+import { accountVerified, saveContacts, savePreferences, saveProfile, uploadPhoto, uploadSelfie, uploadVoice } from "../../state/live";
 import { useStore } from "../../state/store";
 import { Button, Card, Chip, Field, Headline, ProgressBar, Toggle, inputClass } from "../../ui/primitives";
 import { SAMPLE_FACES } from "../../ui/photos";
@@ -36,7 +37,7 @@ export function Onboarding() {
           {index + 1}/{ORDER.length}
         </span>
       </div>
-      {step === "phone" ? <Phone draft={draft} onNext={(phone) => go("otp", { phone })} /> : null}
+      {step === "phone" ? (isLive() ? <Button onClick={() => navigate("/login")}>Go to login</Button> : <Phone draft={draft} onNext={(phone) => go("otp", { phone })} />) : null}
       {step === "otp" ? (
         <Otp
           phone={draft.phone}
@@ -70,7 +71,21 @@ export function Onboarding() {
         />
       ) : null}
       {step === "preferences" ? (
-        <Preferences draft={draft} onChange={(patch) => commit(saveDraft(current(), patch))} onNext={() => go("contacts")} />
+        <Preferences draft={draft} onChange={(patch) => commit(saveDraft(current(), patch))} onNext={() => {
+          const next = current().draft;
+          void (async () => {
+            if (isLive()) {
+              await savePreferences({
+                areas: next.areas,
+                languages: next.languages,
+                ageMin: next.ageMin,
+                ageMax: next.ageMax,
+                foods: next.foods,
+              });
+            }
+            go("contacts");
+          })();
+        }} />
       ) : null}
       {step === "contacts" ? (
         <Contacts
@@ -78,17 +93,23 @@ export function Onboarding() {
           onChange={(patch) => commit(saveDraft(current(), patch))}
           onNext={async () => {
             const payload = await contactPayload(draft.contacts);
-            go("ready", {
-              contactHashes: payload.hashes,
-              allowHashes: draft.hideFromContacts ? payload.allowlist : [],
-            });
+            const allowHashes = draft.hideFromContacts ? payload.allowlist : [];
+            if (isLive()) await saveContacts(payload.hashes, allowHashes);
+            go("ready", { contactHashes: payload.hashes, allowHashes });
           }}
         />
       ) : null}
       {step === "ready" ? (
         <Ready
           onNext={(notifications) => {
-            commit(completeOnboarding(saveDraft(current(), { notifications })));
+            const next = saveDraft(current(), { notifications, completed: true });
+            if (isLive()) {
+              const ready = accountVerified();
+              commit({ ...next, preview: false, ready });
+              navigate(ready ? "/drop" : "/waiting");
+              return;
+            }
+            commit(completeOnboarding(next));
             navigate("/drop");
           }}
         />
@@ -119,12 +140,12 @@ function Phone({ draft, onNext }: { draft: Draft; onNext: (phone: string) => voi
 
 function Otp({ phone, onNext }: { phone: string; onNext: () => void }) {
   const [code, setCode] = useState("");
-  const valid = backendConfigured ? code.length === 6 : code === DEMO_OTP;
+  const valid = isLive() ? code.length === 6 : code === DEMO_OTP;
   return (
     <div className="space-y-6">
       <Headline text="Enter the code" italic="code" />
       <p className="text-mute">Sent to {phone}.</p>
-      {backendConfigured ? null : (
+      {isLive() ? null : (
         <Card>
           <p className="text-sm text-mute">No SMS provider is connected in this preview. Use code {DEMO_OTP}.</p>
         </Card>
@@ -188,7 +209,13 @@ function Basics({ draft, onNext }: { draft: Draft; onNext: (patch: Partial<Draft
           </Chip>
         ))}
       </div>
-      <Button disabled={!ready} onClick={() => onNext({ name: name.trim(), dob, gender, showMe })}>
+      <Button disabled={!ready} onClick={() => {
+        const patch = { name: name.trim(), dob, gender, showMe };
+        void (async () => {
+          if (isLive()) await saveProfile({ displayName: patch.name, dob, gender, showMe, hideFromContacts: draft.hideFromContacts });
+          onNext(patch);
+        })();
+      }}>
         Continue
       </Button>
     </div>
@@ -211,7 +238,12 @@ function IntentStep({ draft, onNext }: { draft: Draft; onNext: (intent: Intent) 
           <button
             key={option.id}
             type="button"
-            onClick={() => onNext(option.id)}
+            onClick={() => {
+              void (async () => {
+                if (isLive()) await saveProfile({ intent: option.id });
+                onNext(option.id);
+              })();
+            }}
             className={`flex min-h-16 w-full items-center gap-3 rounded-3xl border p-4 text-left ${draft.intent === option.id ? "border-gold bg-card2" : "border-line bg-card"}`}
           >
             <span className={`grid h-11 w-11 shrink-0 place-items-center rounded-2xl text-lg font-bold ${tone}`}>{mark}</span>
@@ -257,8 +289,20 @@ function Selfie({ onNext }: { onNext: () => void }) {
   useEffect(() => {
     if (seconds == null) return undefined;
     if (seconds <= 0) {
-      verifySelfie();
-      onNext();
+      const video = videoRef.current;
+      void (async () => {
+        if (isLive() && video) {
+          const canvas = document.createElement("canvas");
+          canvas.width = video.videoWidth || 480;
+          canvas.height = video.videoHeight || 640;
+          canvas.getContext("2d")?.drawImage(video, 0, 0);
+          const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob((next) => resolve(next), "image/jpeg"));
+          if (blob) await uploadSelfie(blob);
+        } else {
+          verifySelfie();
+        }
+        onNext();
+      })();
       return undefined;
     }
     const timer = window.setTimeout(() => setSeconds((value) => (value == null ? value : value - 1)), 1000);
@@ -333,8 +377,13 @@ function Photos({
           accept="image/*"
           multiple
           onChange={(event) => {
-            const added = event.target.files?.length ?? 0;
-            onChange(Math.min(6, Math.max(count, added)), main);
+            const files = [...(event.target.files ?? [])].slice(0, 6);
+            void (async () => {
+              if (isLive()) {
+                for (let index = 0; index < files.length; index += 1) await uploadPhoto(files[index], index === 0);
+              }
+              onChange(Math.min(6, Math.max(count, files.length)), main);
+            })();
           }}
         />
       </label>
@@ -381,13 +430,24 @@ function Voice({
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const media = new MediaRecorder(stream);
       recorder.current = media;
+      const chunks: Blob[] = [];
+      media.ondataavailable = (event) => {
+        if (event.data.size) chunks.push(event.data);
+      };
       media.onstop = () => {
         stream.getTracks().forEach((track) => track.stop());
+        const seconds = Math.max(1, secondsRef.current);
         const next = voices.map((voice, voiceIndex) =>
-          voiceIndex === index ? { ...voice, recorded: true, seconds: Math.max(1, secondsRef.current) } : voice,
+          voiceIndex === index ? { ...voice, recorded: true, seconds } : voice,
         );
-        onChange(next);
-        setActive(null);
+        void (async () => {
+          if (isLive()) {
+            const blob = new Blob(chunks, { type: media.mimeType || "audio/webm" });
+            if (blob.size) await uploadVoice(blob, voices[index].prompt, seconds);
+          }
+          onChange(next);
+          setActive(null);
+        })();
       };
       media.start();
     } catch {
@@ -561,11 +621,13 @@ function Contacts({
 function Ready({ onNext }: { onNext: (notifications: boolean) => void }) {
   return (
     <div className="space-y-6">
-      <div className="flex justify-center gap-2">
-        <img src={SAMPLE_FACES.sameera} alt="" className="mt-6 h-24 w-16 -rotate-6 rounded-2xl object-cover" />
-        <img src={SAMPLE_FACES.ananya} alt="" className="h-32 w-24 rounded-2xl object-cover" />
-        <img src={SAMPLE_FACES.divya} alt="" className="mt-6 h-24 w-16 rotate-6 rounded-2xl object-cover" />
-      </div>
+      {isLive() ? null : (
+        <div className="flex justify-center gap-2">
+          <img src={SAMPLE_FACES.sameera} alt="" className="mt-6 h-24 w-16 -rotate-6 rounded-2xl object-cover" />
+          <img src={SAMPLE_FACES.ananya} alt="" className="h-32 w-24 rounded-2xl object-cover" />
+          <img src={SAMPLE_FACES.divya} alt="" className="mt-6 h-24 w-16 rotate-6 rounded-2xl object-cover" />
+        </div>
+      )}
       <Headline text="Your first Drop arrives at 9 pm." italic="arrives at" className="text-center" />
       <p className="text-center text-mute">3 people, picked for you. Turn on notifications so you don't miss it.</p>
       <Button onClick={() => onNext(true)}>Turn on notifications</Button>

@@ -3,7 +3,8 @@ import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { PEOPLE } from "../../mocks/people";
 import { env } from "../../lib/env";
-import { createRoom, likePerson, spendCoins } from "../../state/logic";
+import { createRoom, spendCoins } from "../../state/logic";
+import { likePerson, recordStreak } from "../../state/live";
 import { useStore } from "../../state/store";
 import { Button, Card, Headline, Sheet, inputClass } from "../../ui/primitives";
 import { SELF_PHOTOS, samplePhoto } from "../../ui/photos";
@@ -242,9 +243,11 @@ export function ChaiBreak() {
               <p className="font-semibold">You both revealed. This is {partner.name}.</p>
               <div className="mt-3">
                 <Button onClick={() => {
-                  const result = likePerson(current(), partner.id, "From Chai Break", []);
-                  commit(result.state);
-                  navigate(result.matched ? `/match/${partner.id}` : "/rooms");
+                  void recordStreak(current(), "room");
+                  void likePerson(current(), partner.id, "From Chai Break", []).then((result) => {
+                    commit(result.state);
+                    navigate(result.matched ? `/match/${partner.id}` : "/rooms");
+                  });
                 }}>
                   Send a like
                 </Button>

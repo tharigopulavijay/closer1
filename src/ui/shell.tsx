@@ -1,6 +1,7 @@
 import { CalendarDays, ChevronLeft, Gamepad2, Mic, Moon, Shield, User } from "lucide-react";
 import type { ReactNode } from "react";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
+import { useStatus } from "../state/status";
 import { useStore } from "../state/store";
 import { cn } from "./primitives";
 
@@ -139,9 +140,15 @@ export function Screen({
   children: ReactNode;
   bleed?: boolean;
 }) {
+  const status = useStatus();
   return (
     <>
       <TopBar title={title} back={back} />
+      {status.loading || status.error ? (
+        <p className={`px-4 py-2 text-sm ${status.error ? "text-coral" : "text-mute"}`}>
+          {status.error || "Loading…"}
+        </p>
+      ) : null}
       <main className={cn("min-h-0 flex-1 overflow-y-auto", bleed ? "" : "px-4 pb-8")}>{children}</main>
       {tab ? <TabBar /> : null}
     </>

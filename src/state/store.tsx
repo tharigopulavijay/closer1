@@ -1,6 +1,8 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { blankState } from "./logic";
+import { sessionToken } from "../lib/api";
 import type { AppState } from "../lib/types";
+import { blankState } from "./logic";
+import { isLive, refresh } from "./live";
 
 const KEY = "closer.v1";
 
@@ -33,6 +35,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     localStorage.setItem(KEY, JSON.stringify(state));
     document.title = state.discreet ? "Notes" : "Closer";
   }, [state]);
+
+  useEffect(() => {
+    if (!isLive() || !sessionToken()) return;
+    void refresh(ref.current).then((next) => {
+      ref.current = next;
+      setState(next);
+    });
+  }, []);
 
   const api = useMemo<Pick<Store, "current" | "commit">>(
     () => ({

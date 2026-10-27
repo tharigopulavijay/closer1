@@ -3,7 +3,8 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ANTAKSHARI_LETTERS, QUIZ, THIS_OR_THAT } from "../../mocks/catalog";
 import { PEOPLE, personById } from "../../mocks/people";
-import { addFriend, finishGame, likePerson } from "../../state/logic";
+import { addFriend, finishGame } from "../../state/logic";
+import { likePerson, recordStreak } from "../../state/live";
 import { useStore } from "../../state/store";
 import { Button, Card, Chip, Headline } from "../../ui/primitives";
 import { Screen } from "../../ui/shell";
@@ -157,8 +158,8 @@ export function LudoScreen() {
           showLike={app.draft.intent !== "friends"}
           onFriend={() => commit(addFriend(current(), "meher"))}
           onLike={() => {
-            const result = likePerson(current(), "meher", "From Ludo", []);
-            commit(result.state);
+            void likePerson(current(), "meher", "From Ludo", []).then((result) => commit(result.state));
+            void recordStreak(current(), "play");
           }}
         />
       ) : null}
@@ -247,7 +248,7 @@ export function ThisOrThat() {
       ) : (
         <>
           <h2 className="font-serif text-5xl">{score} matched</h2>
-          <AfterGame showLike onFriend={() => commit(addFriend(current(), partner.id))} onLike={() => commit(likePerson(current(), partner.id, "This or That", []).state)} />
+          <AfterGame showLike onFriend={() => commit(addFriend(current(), partner.id))} onLike={() => { void likePerson(current(), partner.id, "This or That", []).then((result) => commit(result.state)); }} />
         </>
       )}
     </Screen>
@@ -406,7 +407,7 @@ export function Antakshari() {
         <>
           <Headline text={`${score[0]} to ${score[1]}`} italic="to" />
           <p className="mt-2 text-sm text-mute">Honour scoring. The room doesn't check the song.</p>
-          {friend ? <AfterGame showLike onFriend={() => commit(addFriend(current(), friend.id))} onLike={() => commit(likePerson(current(), friend.id, "Antakshari", []).state)} /> : null}
+          {friend ? <AfterGame showLike onFriend={() => commit(addFriend(current(), friend.id))} onLike={() => { void likePerson(current(), friend.id, "Antakshari", []).then((result) => commit(result.state)); }} /> : null}
         </>
       ) : (
         <>

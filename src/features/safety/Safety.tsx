@@ -1,21 +1,20 @@
 import { ChevronRight, Phone, Shield, Users } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { personById } from "../../mocks/people";
+import { isLive } from "../../lib/env";
+import { personOf } from "../../state/live";
 import { venueById } from "../../mocks/catalog";
 import { SEVERE_CATEGORIES } from "../../lib/types";
 import {
-  addTrusted,
   answerCheck,
   appealStrike,
   checkIn,
   confirmTrusted,
-  fileReport,
   markCheckCall,
   setCheckInterval,
   setSharing,
-  triggerSos,
 } from "../../state/logic";
+import { addTrusted, fileReport, triggerSos } from "../../state/live";
 import { useStore } from "../../state/store";
 import { Button, Card, Chip, Headline, inputClass } from "../../ui/primitives";
 import { Screen } from "../../ui/shell";
@@ -71,8 +70,9 @@ export function SafetySetup() {
         {state.trusted.map((contact) => (
           <Card key={contact.id}>
             <p className="font-semibold">{contact.name}</p>
+            <p className="text-sm text-mute">····{contact.phone.replace(/\D/g, "").slice(-4)}</p>
             <p className="text-sm text-mute">{contact.confirmed ? "Confirmed" : "Waiting for their yes"}</p>
-            {contact.confirmed ? null : (
+            {contact.confirmed || isLive() ? null : (
               <button type="button" className="mt-2 inline-flex min-h-11 items-center text-sm font-semibold text-gold" onClick={() => commit(confirmTrusted(current(), contact.id))}>
                 Mark confirmed (preview)
               </button>
@@ -87,9 +87,11 @@ export function SafetySetup() {
           <Button
             disabled={!name.trim() || phone.replace(/\D/g, "").length < 10}
             onClick={() => {
-              commit(addTrusted(current(), name.trim(), phone));
-              setName("");
-              setPhone("");
+              void addTrusted(current(), name.trim(), phone).then((next) => {
+                commit(next);
+                setName("");
+                setPhone("");
+              });
             }}
           >
             Send confirmation link
@@ -105,7 +107,7 @@ export function DateDay() {
   const { state, current, commit } = useStore();
   const navigate = useNavigate();
   const plan = state.plans.find((item) => item.id === planId);
-  const person = plan ? personById(plan.personId) : undefined;
+  const person = plan ? personOf(plan.personId) : undefined;
   const venue = plan ? venueById(plan.venueId) : undefined;
   const session = state.sessions.find((item) => item.planId === planId);
   const [simulate, setSimulate] = useState(false);
@@ -133,11 +135,11 @@ export function DateDay() {
       setHold(value);
       if (value >= 1) {
         const coords = { lat: venue?.lat ?? null, lng: venue?.lng ?? null };
-        commit(triggerSos(current(), planId, coords));
-        setSosNote("112 is opening. Trusted contacts and the safety desk already have the live location.");
         const link = document.createElement("a");
         link.href = "tel:112";
         link.click();
+        void triggerSos(current(), planId, coords).then((next) => commit(next));
+        setSosNote("112 is opening. Trusted contacts and the safety desk get the location when the phone allows it.");
         return;
       }
       frame.current = requestAnimationFrame(step);
@@ -239,7 +241,7 @@ export function ReportFlow() {
   const [category, setCategory] = useState(SEVERE_CATEGORIES[0]);
   const [detail, setDetail] = useState("");
   const [done, setDone] = useState(false);
-  const people = state.matches.map((id) => personById(id)?.name).filter(Boolean) as string[];
+  const people = state.matches.map((id) => personOf(id)?.name).filter(Boolean) as string[];
   return (
     <Screen title="Report" back="/safety">
       <Headline text="Tell us what happened" italic="happened" />
@@ -266,13 +268,15 @@ export function ReportFlow() {
           <Button
             disabled={!name.trim() || !detail.trim()}
             onClick={() => {
-              commit(fileReport(current(), {
+              void fileReport(current(), {
                 againstName: name.trim(),
                 category,
                 severe: SEVERE_CATEGORIES.includes(category),
                 detail: detail.trim(),
-              }));
-              setDone(true);
+              }).then((next) => {
+                commit(next);
+                setDone(true);
+              });
             }}
           >
             Submit report

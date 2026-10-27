@@ -15,21 +15,34 @@ import {
   confirmTrustedContact,
   createPlan,
   deleteAccount,
+  deleteProfilePhoto,
   fileReport,
   insertDebrief,
   keepChat,
   listBuckets,
+  listMatches,
+  listMyPlans,
+  listPlanMessages,
+  listReceivedLikes,
   listTrusted,
   listVisibleIds,
   markDepositPaid,
   readPhotos,
+  readPreferences,
   readProfile,
   recordActivity,
+  registerProfilePhoto,
+  registerVoice,
+  replaceAllowlist,
+  replaceContactHashes,
+  savePreferences,
   sendLike,
   setAway,
   setTrustedToken,
   todayDrop,
   updateProfile,
+  verifyMember,
+  verifyQueue,
 } from "./policy";
 import { handleRazorpayWebhook } from "./razorpay";
 import { raiseSos } from "./sos";
@@ -42,18 +55,51 @@ app.onError((err, c) => {
   return c.json({ error: "error" }, 500);
 });
 
+function allowedOrigin(env: Env, origin: string) {
+  const list = (env.ALLOWED_ORIGINS ?? "")
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+  return origin && list.includes(origin) ? origin : "";
+}
+
+app.use("*", async (c, next) => {
+  const origin = c.req.header("origin") ?? "";
+  const allowed = allowedOrigin(c.env, origin);
+  if (c.req.method === "OPTIONS") {
+    if (!allowed) return c.body(null, 403);
+    c.header("access-control-allow-origin", allowed);
+    c.header("vary", "Origin");
+    c.header("access-control-allow-methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
+    c.header("access-control-allow-headers", "authorization,content-type");
+    c.header("access-control-max-age", "600");
+    return c.body(null, 204);
+  }
+  await next();
+  if (allowed) {
+    c.header("access-control-allow-origin", allowed);
+    c.header("vary", "Origin");
+  }
+});
+
 function service(c: { env: Env; req: { header: (name: string) => string | undefined } }) {
   const token = c.env.SERVICE_TOKEN;
   return Boolean(token) && c.req.header("x-closer-service") === token;
 }
 
 app.use("*", async (c, next) => {
+  if (c.req.method === "OPTIONS") {
+    await next();
+    return;
+  }
   const path = c.req.path;
   if (path.startsWith("/auth") || path.startsWith("/service") || path.startsWith("/webhooks") || path.startsWith("/trusted-contacts/confirm")) {
     await next();
     return;
   }
-  const userId = await userIdForToken(c.env.DB, c.req.header("authorization"));
+  const header = c.req.header("authorization");
+  const queryToken = path.endsWith("/chat") ? c.req.query("token") : "";
+  const userId = await userIdForToken(c.env.DB, header || (queryToken ? `Bearer ${queryToken}` : undefined));
   if (!userId) return c.json({ error: "auth required" }, 401);
   c.set("userId", userId);
   await next();
@@ -90,7 +136,47 @@ app.get("/profiles/:id/photos", async (c) => {
 
 app.get("/profiles/:id", async (c) => c.json(await readProfile(c.env.DB, c.get("userId"), c.req.param("id"))));
 
+app.get("/preferences", async (c) => c.json(await readPreferences(c.env.DB, c.get("userId"))));
+
+app.put("/preferences", async (c) => {
+  const body = await c.req.json<{ areas?: unknown; languages?: unknown; ageMin?: unknown; ageMax?: unknown; foods?: unknown }>();
+  return c.json(await savePreferences(c.env.DB, c.get("userId"), body));
+});
+
+app.put("/contacts/allowlist", async (c) => {
+  const body = await c.req.json<{ hashes?: unknown }>();
+  return c.json(await replaceAllowlist(c.env.DB, c.get("userId"), body.hashes));
+});
+
+app.put("/contacts", async (c) => {
+  const body = await c.req.json<{ hashes?: unknown }>();
+  return c.json(await replaceContactHashes(c.env.DB, c.get("userId"), body.hashes));
+});
+
+app.post("/me/photos", async (c) => {
+  const body = await c.req.json<{ key?: string; main?: boolean }>();
+  return c.json(await registerProfilePhoto(c.env.DB, c.get("userId"), body.key ?? "", Boolean(body.main)));
+});
+
+app.delete("/me/photos/:id", async (c) => c.json(await deleteProfilePhoto(c.env.DB, c.get("userId"), c.req.param("id"))));
+
+app.post("/me/voice", async (c) => {
+  const body = await c.req.json<{ key?: string; prompt?: string; seconds?: number }>();
+  return c.json(await registerVoice(c.env.DB, c.get("userId"), body.key ?? "", body.prompt ?? "", Number(body.seconds)));
+});
+
 app.get("/drop/today", async (c) => c.json(await todayDrop(c.env.DB, c.get("userId"))));
+
+app.get("/matches", async (c) => c.json({ matches: await listMatches(c.env.DB, c.get("userId")) }));
+
+app.get("/likes/received", async (c) => c.json({ likes: await listReceivedLikes(c.env.DB, c.get("userId")) }));
+
+app.get("/plans", async (c) => c.json({ plans: await listMyPlans(c.env.DB, c.get("userId")) }));
+
+app.get("/plans/:id/messages", async (c) => {
+  const before = c.req.query("before");
+  return c.json({ messages: await listPlanMessages(c.env.DB, c.get("userId"), c.req.param("id"), before || undefined) });
+});
 
 app.post("/likes", async (c) => {
   const body = await c.req.json<{ personId?: string; note?: string }>();
@@ -188,6 +274,10 @@ app.post("/gifts/claim", async (c) => {
   const id = await claimGift(c.env.DB, c.get("userId"), Number(body.milestone), body.gift ?? "", body.address ?? "");
   return c.json({ id });
 });
+
+app.get("/admin/verify-queue", async (c) => c.json({ queue: await verifyQueue(c.env.DB, c.get("userId")) }));
+
+app.post("/admin/users/:id/verify", async (c) => c.json(await verifyMember(c.env.DB, c.get("userId"), c.req.param("id"))));
 
 app.post("/admin/reports/:id/confirm", async (c) => {
   const body = await c.req.json<{ action?: string }>();

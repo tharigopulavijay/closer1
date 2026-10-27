@@ -10,6 +10,8 @@ export interface Env {
   RAZORPAY_WEBHOOK_SECRET?: string;
   LIVEKIT_API_KEY?: string;
   LIVEKIT_API_SECRET?: string;
+  /** Comma-separated browser origins. Empty means no cross-origin browser access. */
+  ALLOWED_ORIGINS?: string;
 }
 
 export class PolicyError extends Error {
