@@ -83,8 +83,21 @@ describe("review fixes", () => {
   });
 
   it("the fixed dev login code does nothing in production", async () => {
-    const sent = await requestOtp({ DB: env.DB, DEV_OTP: "482913", ENVIRONMENT: "production" }, "+919000000001");
-    expect(sent).toEqual({ sent: true });
+    // Without an SMS provider, production refuses to hand out a code nobody will receive.
+    await expect(requestOtp({ DB: env.DB, DEV_OTP: "482913", ENVIRONMENT: "production" }, "+919000000001")).rejects.toThrow(
+      /could not send code/,
+    );
+    const original = globalThis.fetch;
+    globalThis.fetch = (async () => new Response("{}", { status: 200 })) as typeof fetch;
+    try {
+      const sent = await requestOtp(
+        { DB: env.DB, DEV_OTP: "482913", ENVIRONMENT: "production", MSG91_KEY: "k", MSG91_TEMPLATE_ID: "t" },
+        "+919000000001",
+      );
+      expect(sent).toEqual({ sent: true });
+    } finally {
+      globalThis.fetch = original;
+    }
     await expect(verifyOtp({ DB: env.DB, DEV_OTP: "482913", ENVIRONMENT: "production" }, "+919000000001", "482913")).rejects.toThrow(
       /wrong code/,
     );

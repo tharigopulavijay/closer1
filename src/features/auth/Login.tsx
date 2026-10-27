@@ -94,6 +94,18 @@ export function Waiting() {
   const navigate = useNavigate();
   const { current, commit } = useStore();
   const [error, setError] = useState("");
+  const [retake, setRetake] = useState("");
+  useEffect(() => {
+    let gone = false;
+    api.me()
+      .then((me) => {
+        if (!gone && me.retakeNote) setRetake(me.retakeNote);
+      })
+      .catch(() => undefined);
+    return () => {
+      gone = true;
+    };
+  }, []);
 
   async function check() {
     try {
@@ -111,6 +123,7 @@ export function Waiting() {
     <Screen title="Verification">
       <h2 className="font-serif text-4xl">Waiting for verification</h2>
       <p className="mt-3 text-sm text-mute">Your selfie is with the ops desk. The Drop stays closed until they confirm it.</p>
+      {retake ? <p className="mt-3 text-sm text-coral">Please retake your selfie. {retake}</p> : null}
       {error ? <p className="mt-3 text-sm text-coral">{error}</p> : null}
       <div className="mt-6">
         <Button onClick={() => void check()}>Check again</Button>

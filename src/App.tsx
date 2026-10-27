@@ -1,5 +1,5 @@
 import { Navigate, Outlet, Route, Routes } from "react-router-dom";
-import { AdminApp, Dates, Growth, Reports, RoomsMonitor, Venues } from "./features/admin/Admin";
+import { AdminApp, Dates, Growth, Reports, RoomsMonitor, Venues, VerifyDesk } from "./features/admin/Admin";
 import { DropHome, Mutual, Profile, StreakScreen } from "./features/drop/Drop";
 import { Onboarding } from "./features/onboarding/Onboarding";
 import { Antakshari, Housie, LudoScreen, PlayLobby, Quiz, ThisOrThat } from "./features/play/Play";
@@ -49,6 +49,7 @@ export function App() {
     <Routes>
       <Route path="/admin" element={<AdminApp />}>
         <Route index element={<Reports />} />
+        <Route path="verify" element={<VerifyDesk />} />
         <Route path="dates" element={<Dates />} />
         <Route path="venues" element={<Venues />} />
         <Route path="rooms" element={<RoomsMonitor />} />

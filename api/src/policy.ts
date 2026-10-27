@@ -20,6 +20,7 @@ type Profile = {
   paused: number;
   deleted_at: string | null;
   closer_plus: number;
+  retake_note?: string | null;
 };
 
 type Plan = {
@@ -131,7 +132,8 @@ export async function readProfile(db: D1Database, viewerId: string, targetId: st
   if (!(await canView(db, viewerId, targetId))) fail("not visible", 404);
   const row = await profile(db, targetId);
   if (!row) fail("not visible", 404);
-  return viewerId === targetId ? ownProfile(row) : publicProfile(row);
+  if (viewerId !== targetId) return publicProfile(row);
+  return { ...ownProfile(row), staffRoles: await listStaffRoles(db, targetId) };
 }
 
 export async function readPhotos(db: D1Database, viewerId: string, targetId: string) {
@@ -170,7 +172,13 @@ function ownProfile(row: Profile) {
     hideFromContacts: Boolean(row.hide_from_contacts),
     paused: Boolean(row.paused),
     closerPlus: Boolean(row.closer_plus),
+    retakeNote: row.retake_note ?? null,
   };
+}
+
+export async function listStaffRoles(db: D1Database, userId: string) {
+  const rows = await db.prepare(`select role from staff_roles where user_id = ? order by role`).bind(userId).all<{ role: string }>();
+  return rows.results.map((row) => row.role);
 }
 
 const PROTECTED = new Set(["verified", "phoneHash", "phone_hash", "closerPlus", "closer_plus"]);
@@ -1018,7 +1026,7 @@ export async function verifyMember(db: D1Database, actorId: string, targetId: st
   if (!target || target.deleted_at) fail("missing user", 404);
   const now = new Date().toISOString();
   await db.batch([
-    db.prepare(`update profiles set verified = 1 where id = ?`).bind(targetId),
+    db.prepare(`update profiles set verified = 1, retake_note = null where id = ?`).bind(targetId),
     db.prepare(`insert into audit_log (id, actor, role, action, detail, created_at) values (?, ?, 'ops', 'verify', ?, ?)`).bind(
       crypto.randomUUID(),
       actorId,
@@ -1027,6 +1035,56 @@ export async function verifyMember(db: D1Database, actorId: string, targetId: st
     ),
   ]);
   return { ok: true };
+}
+
+export async function rejectMember(db: D1Database, actorId: string, targetId: string, reason: string) {
+  if (!(await staffRole(db, actorId, "ops"))) fail("ops only");
+  if (await banned(db, actorId)) fail("banned");
+  const note = reason.trim();
+  if (!note) fail("reason required", 400);
+  const target = await profile(db, targetId);
+  if (!target || target.deleted_at) fail("missing user", 404);
+  const now = new Date().toISOString();
+  const selfies = await db
+    .prepare(`select id from media_objects where owner_id = ? and kind = 'selfie'`)
+    .bind(targetId)
+    .all<{ id: string }>();
+  await db.batch([
+    db.prepare(`update profiles set verified = 0, retake_note = ? where id = ?`).bind(note, targetId),
+    db.prepare(`delete from media_objects where owner_id = ? and kind = 'selfie'`).bind(targetId),
+    db
+      .prepare(`insert into audit_log (id, actor, role, action, detail, created_at) values (?, ?, 'ops', 'reject', ?, ?)`)
+      .bind(crypto.randomUUID(), actorId, `${targetId} ${note}`, now),
+  ]);
+  return { ok: true, selfieKeys: selfies.results.map((row) => row.id) };
+}
+
+export async function listReports(db: D1Database, actorId: string) {
+  if (!(await staffRole(db, actorId, "safety"))) fail("safety only");
+  if (await banned(db, actorId)) fail("banned");
+  const rows = await db
+    .prepare(
+      `select id, against_id, category, detail, status, severe, created_at from reports
+       where status = 'open' order by created_at`,
+    )
+    .all<{
+      id: string;
+      against_id: string | null;
+      category: string;
+      detail: string;
+      status: string;
+      severe: number;
+      created_at: string;
+    }>();
+  return rows.results.map((row) => ({
+    id: row.id,
+    againstId: row.against_id,
+    category: row.category,
+    detail: row.detail,
+    status: row.status,
+    severe: Boolean(row.severe),
+    createdAt: row.created_at,
+  }));
 }
 
 export async function verifyQueue(db: D1Database, actorId: string) {

@@ -51,6 +51,19 @@ export function wsUrl(path: string, ticket: string) {
   return `${proto}//${host}${base}${withTicket}`;
 }
 
+/** Server codes that would read as jargon on a phone get a plain sentence; the rest pass through. */
+const FRIENDLY: Record<string, string> = {
+  "not configured": "This isn't switched on yet. Please try again later.",
+  "payment desk": "The payment service didn't answer. Please try again.",
+  "could not send code": "We couldn't text you a code. Please try again in a minute.",
+  "room full": "This room is full right now.",
+  error: "Something went wrong. Please try again.",
+};
+
+function friendly(message: string) {
+  return FRIENDLY[message] ?? message;
+}
+
 export async function request<T>(path: string, init: { method?: string; body?: unknown; form?: FormData } = {}): Promise<T> {
   const token = sessionToken();
   const headers = new Headers();
@@ -80,7 +93,7 @@ export async function request<T>(path: string, init: { method?: string; body?: u
       json = null;
     }
   }
-  if (!response.ok) throw new ApiError(json?.error || "error", response.status);
+  if (!response.ok) throw new ApiError(friendly(json?.error || "error"), response.status);
   return json as T;
 }
 
@@ -107,6 +120,8 @@ export type OwnProfile = {
   hideFromContacts: boolean;
   paused: boolean;
   closerPlus: boolean;
+  retakeNote?: string | null;
+  staffRoles?: string[];
 };
 
 export const api = {
@@ -158,6 +173,23 @@ export const api = {
     ),
   keep: (planId: string) => request<{ ok: boolean }>(`/plans/${planId}/keep`, { method: "POST" }),
   chatTicket: (planId: string) => request<{ ticket: string; expiresAt: string }>(`/plans/${planId}/chat-ticket`, { method: "POST" }),
+  depositOrder: (planId: string) =>
+    request<{ orderId: string; amount: number; currency: string; keyId: string }>(`/plans/${planId}/deposit/order`, { method: "POST" }),
+  rooms: () =>
+    request<{ rooms: { id: string; title: string; topic: string; host: string; speakers: number; createdAt: string }[] }>("/rooms"),
+  createRoom: (title: string, topic: string) => request<{ id: string }>("/rooms", { body: { title, topic } }),
+  roomToken: (roomId: string) => request<{ token: string }>(`/rooms/${roomId}/token`, { method: "POST" }),
+  joinChai: () => request<{ id: string; guestName: string }>("/rooms/chai", { method: "POST" }),
+  revealChai: (roomId: string) =>
+    request<{ revealed: boolean; people?: { id: string; name: string }[] }>(`/rooms/chai/${roomId}/reveal`, { method: "POST" }),
+  verifyQueue: () => request<{ queue: { id: string; displayName: string; selfies: string[]; photos: string[] }[] }>("/admin/verify-queue"),
+  verifyMember: (userId: string) => request<{ ok: boolean }>(`/admin/users/${userId}/verify`, { method: "POST" }),
+  rejectMember: (userId: string, reason: string) => request<{ ok: boolean }>(`/admin/users/${userId}/reject`, { body: { reason } }),
+  adminReports: () =>
+    request<{ reports: { id: string; againstId: string | null; category: string; detail: string; status: string; severe: boolean; createdAt: string }[] }>(
+      "/admin/reports",
+    ),
+  confirmReport: (reportId: string, action: string) => request<{ ok: boolean }>(`/admin/reports/${reportId}/confirm`, { body: { action } }),
   debrief: (planId: string, body: { feel: string; again: string; note: string }) =>
     request<{ ok: boolean }>(`/plans/${planId}/debrief`, { body }),
   report: (body: { againstId: string; category: string; detail: string; severe?: boolean }) => request<{ ok: boolean }>("/reports", { body }),

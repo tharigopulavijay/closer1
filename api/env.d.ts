@@ -22,5 +22,6 @@ declare module "cloudflare:test" {
     LIVEKIT_API_SECRET: string;
     ALLOWED_ORIGINS: string;
     MSG91_KEY?: string;
+    MSG91_TEMPLATE_ID?: string;
   }
 }
