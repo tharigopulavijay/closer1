@@ -150,11 +150,13 @@ CREATE TABLE IF NOT EXISTS plans (
 );
 
 CREATE TABLE IF NOT EXISTS deposits (
-  plan_id TEXT PRIMARY KEY REFERENCES plans (id) ON DELETE CASCADE,
+  plan_id TEXT NOT NULL REFERENCES plans (id) ON DELETE CASCADE,
+  user_id TEXT NOT NULL REFERENCES profiles (id) ON DELETE CASCADE,
   amount_inr INTEGER NOT NULL DEFAULT 99,
   status TEXT NOT NULL DEFAULT 'unpaid',
   payment_id TEXT,
-  booked_at TEXT
+  booked_at TEXT,
+  PRIMARY KEY (plan_id, user_id)
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS deposits_payment_id_key ON deposits (payment_id) WHERE payment_id IS NOT NULL;
@@ -174,11 +176,12 @@ CREATE TABLE IF NOT EXISTS away_status (
 );
 
 CREATE TABLE IF NOT EXISTS debriefs (
-  plan_id TEXT PRIMARY KEY REFERENCES plans (id) ON DELETE CASCADE,
+  plan_id TEXT NOT NULL REFERENCES plans (id) ON DELETE CASCADE,
   user_id TEXT NOT NULL REFERENCES profiles (id) ON DELETE CASCADE,
   feel TEXT NOT NULL,
   again TEXT NOT NULL,
-  note TEXT NOT NULL DEFAULT ''
+  note TEXT NOT NULL DEFAULT '',
+  PRIMARY KEY (plan_id, user_id)
 );
 
 CREATE TABLE IF NOT EXISTS trusted_contacts (

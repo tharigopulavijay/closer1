@@ -95,7 +95,7 @@ app.post("/likes", async (c) => {
 app.post("/plans", async (c) => {
   const body = await c.req.json<{ personId?: string; venueId?: string; slot?: string; kind?: string }>();
   const id = await createPlan(c.env.DB, c.get("userId"), body.personId ?? "", body.venueId ?? "", body.slot ?? "", body.kind ?? "");
-  const deposit = await c.env.DB.prepare(`select status from deposits where plan_id = ?`).bind(id).first<{ status: string }>();
+  const deposit = await c.env.DB.prepare(`select status from deposits where plan_id = ? and user_id = ?`).bind(id, c.get("userId")).first<{ status: string }>();
   return c.json({ id, deposit: deposit?.status ?? "unpaid" });
 });
 
@@ -198,8 +198,8 @@ app.get("/media", async (c) => {
 
 app.post("/service/deposits/:planId/pay", async (c) => {
   if (!service(c)) return c.json({ error: "permission denied" }, 403);
-  const body = await c.req.json<{ paymentId?: string }>();
-  await markDepositPaid(c.env.DB, c.req.param("planId"), body.paymentId ?? "");
+  const body = await c.req.json<{ paymentId?: string; userId?: string }>();
+  await markDepositPaid(c.env.DB, c.req.param("planId"), body.userId ?? "", body.paymentId ?? "");
   return c.json({ ok: true });
 });
 

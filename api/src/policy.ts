@@ -1,5 +1,6 @@
+import { sha256 } from "./crypto";
 import { fail } from "./env";
-import { addDays, daysBetween, isAdultDob, istDate, istMonth } from "./time";
+import { addDays, daysBetween, isAdultDob, istDate, istMonth, slotInstant } from "./time";
 
 const MILESTONES = [7, 30, 90, 180, 365];
 const BUCKETS = ["photos", "voice", "selfies"];
@@ -235,31 +236,43 @@ export async function createPlan(db: D1Database, ownerId: string, personId: stri
     db.prepare(
       `insert into plans (id, owner_id, person_id, venue_id, slot, kind, status, created_at) values (?, ?, ?, ?, ?, ?, 'upcoming', ?)`,
     ).bind(id, ownerId, personId, venue, slot, kind, now),
-    db.prepare(`insert into deposits (plan_id) values (?)`).bind(id),
+    db.prepare(`insert into deposits (plan_id, user_id) values (?, ?)`).bind(id, ownerId),
+    db.prepare(`insert into deposits (plan_id, user_id) values (?, ?)`).bind(id, personId),
   ]);
   return id;
 }
 
-export async function markDepositPaid(db: D1Database, planId: string, paymentId: string) {
+export async function markDepositPaid(db: D1Database, planId: string, userId: string, paymentId: string) {
   const payment = paymentId.trim();
-  if (!payment) fail("payment required", 400);
+  if (!payment || !userId) fail("payment required", 400);
   const row = await db
-    .prepare(`select status, payment_id from deposits where plan_id = ?`)
-    .bind(planId)
+    .prepare(`select status, payment_id from deposits where plan_id = ? and user_id = ?`)
+    .bind(planId, userId)
     .first<{ status: string; payment_id: string | null }>();
   if (!row) fail("missing deposit", 404);
   if (row.status === "paid" && row.payment_id === payment) return;
   if (row.status === "paid") fail("already paid");
   const used = await db
-    .prepare(`select 1 as n from deposits where payment_id = ? and plan_id <> ?`)
-    .bind(payment, planId)
+    .prepare(`select 1 as n from deposits where payment_id = ? and not (plan_id = ? and user_id = ?)`)
+    .bind(payment, planId, userId)
     .first();
   if (used) fail("payment already used");
   const now = new Date().toISOString();
-  await db.batch([
-    db.prepare(`update deposits set status = 'paid', payment_id = ?, booked_at = ? where plan_id = ?`).bind(payment, now, planId),
-    db.prepare(`update plans set booked_at = coalesce(booked_at, ?) where id = ?`).bind(now, planId),
-  ]);
+  await db
+    .prepare(`update deposits set status = 'paid', payment_id = ?, booked_at = ? where plan_id = ? and user_id = ?`)
+    .bind(payment, now, planId, userId)
+    .run();
+  const pending = await db
+    .prepare(`select count(*) as n from deposits where plan_id = ? and status <> 'paid'`)
+    .bind(planId)
+    .first<{ n: number }>();
+  const paid = await db
+    .prepare(`select count(*) as n from deposits where plan_id = ? and status = 'paid'`)
+    .bind(planId)
+    .first<{ n: number }>();
+  if (Number(pending?.n ?? 1) === 0 && Number(paid?.n ?? 0) >= 2) {
+    await db.prepare(`update plans set booked_at = coalesce(booked_at, ?) where id = ?`).bind(now, planId).run();
+  }
 }
 
 export async function keepChat(db: D1Database, userId: string, planId: string) {
@@ -293,16 +306,25 @@ export async function deliverMessage(db: D1Database, senderId: string, planId: s
   return id;
 }
 
-async function chatOpen(db: D1Database, plan: Plan) {
+export async function chatOpen(db: D1Database, plan: Plan) {
   if (plan.status === "closed") return false;
-  const deposit = await db
+  const deposits = await db
     .prepare(`select status from deposits where plan_id = ?`)
     .bind(plan.id)
-    .first<{ status: string }>();
-  if (deposit?.status !== "paid") return false;
+    .all<{ status: string }>();
+  if (deposits.results.length < 2 || deposits.results.some((row) => row.status !== "paid")) return false;
   if (plan.kept_by_owner && plan.kept_by_person) return true;
   if (!plan.booked_at) return false;
   return Date.now() < Date.parse(plan.booked_at) + 48 * 60 * 60 * 1000;
+}
+
+export async function assertChatAccess(db: D1Database, userId: string, planId: string) {
+  await assertActive(db, userId);
+  const plan = await db.prepare(`select * from plans where id = ?`).bind(planId).first<Plan>();
+  if (!plan) fail("missing plan", 404);
+  if (plan.owner_id !== userId && plan.person_id !== userId) fail("not in plan");
+  if (!(await chatOpen(db, plan))) fail("chat closed");
+  return plan;
 }
 
 export async function fileReport(
@@ -515,7 +537,9 @@ export async function addTrusted(db: D1Database, userId: string, name: string, p
 }
 
 export async function setTrustedToken(db: D1Database, contactId: string, token: string) {
-  await db.prepare(`update trusted_contacts set confirm_token = ? where id = ?`).bind(token, contactId).run();
+  const trimmed = token.trim();
+  if (!trimmed) fail("bad token", 400);
+  await db.prepare(`update trusted_contacts set confirm_token = ? where id = ?`).bind(await sha256(trimmed), contactId).run();
 }
 
 export async function confirmTrustedContact(db: D1Database, token: string) {
@@ -523,7 +547,7 @@ export async function confirmTrustedContact(db: D1Database, token: string) {
   if (!trimmed) fail("bad token", 400);
   const row = await db
     .prepare(`select id from trusted_contacts where confirm_token = ? and confirmed = 0`)
-    .bind(trimmed)
+    .bind(await sha256(trimmed))
     .first<{ id: string }>();
   if (!row) fail("bad token", 400);
   await db.prepare(`update trusted_contacts set confirmed = 1, confirm_token = null where id = ?`).bind(row.id).run();
@@ -544,8 +568,18 @@ export async function listTrusted(db: D1Database, userId: string) {
 
 export async function insertDebrief(db: D1Database, userId: string, planId: string, feel: string, again: string, note = "") {
   await assertActive(db, userId);
-  const plan = await db.prepare(`select owner_id, person_id from plans where id = ?`).bind(planId).first<Plan>();
+  const plan = await db
+    .prepare(`select owner_id, person_id, slot, created_at from plans where id = ?`)
+    .bind(planId)
+    .first<Plan & { slot: string; created_at: string }>();
   if (!plan || (plan.owner_id !== userId && plan.person_id !== userId)) fail("row-level security");
+  const at = slotInstant(plan.slot, plan.created_at);
+  if (at === null || Date.now() <= at) fail("slot not started");
+  const existing = await db
+    .prepare(`select 1 as n from debriefs where plan_id = ? and user_id = ?`)
+    .bind(planId, userId)
+    .first();
+  if (existing) fail("already debriefed");
   await db
     .prepare(`insert into debriefs (plan_id, user_id, feel, again, note) values (?, ?, ?, ?, ?)`)
     .bind(planId, userId, feel, again, note)

@@ -93,11 +93,16 @@ describe("database rules over HTTP", () => {
     expect((created.json as { deposit: string }).deposit).toBe("unpaid");
 
     await expect(deliverMessage(env.DB, A, plan, "chai?")).rejects.toThrow(/chat closed/);
-    expect((await api(`/service/deposits/${plan}/pay`, { method: "POST", token: token[A], body: { paymentId: "pay_1" } })).text).toMatch(/permission denied/);
+    expect((await api(`/service/deposits/${plan}/pay`, { method: "POST", token: token[A], body: { paymentId: "pay_1", userId: A } })).text).toMatch(/permission denied/);
 
-    expect((await api(`/service/deposits/${plan}/pay`, { method: "POST", service: true, body: { paymentId: "pay_1" } })).status).toBe(200);
-    expect((await api(`/service/deposits/${plan}/pay`, { method: "POST", service: true, body: { paymentId: "pay_1" } })).status).toBe(200);
+    expect((await api(`/service/deposits/${plan}/pay`, { method: "POST", service: true, body: { paymentId: "pay_1", userId: A } })).status).toBe(200);
+    expect((await api(`/service/deposits/${plan}/pay`, { method: "POST", service: true, body: { paymentId: "pay_1", userId: A } })).status).toBe(200);
     expect(await count(`select count(*) as n from deposits where plan_id = ? and status = 'paid'`, plan)).toBe(1);
+    expect(await count(`select count(*) as n from plans where id = ? and booked_at is not null`, plan)).toBe(0);
+    await expect(deliverMessage(env.DB, A, plan, "too soon")).rejects.toThrow(/chat closed/);
+
+    expect((await api(`/service/deposits/${plan}/pay`, { method: "POST", service: true, body: { paymentId: "pay_2", userId: B } })).status).toBe(200);
+    expect(await count(`select count(*) as n from deposits where plan_id = ? and status = 'paid'`, plan)).toBe(2);
     expect(await count(`select count(*) as n from plans where id = ? and booked_at is not null`, plan)).toBe(1);
 
     expect((await api("/messages", { method: "POST", token: token[A], body: { planId: plan, body: "chai?" } })).status).toBe(404);
