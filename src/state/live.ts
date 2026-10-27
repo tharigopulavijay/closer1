@@ -17,6 +17,16 @@ let dropIds: string[] = [];
 let meId = "";
 let verified = false;
 
+/** Plans booked with an exact time arrive as ISO strings; show them the way the app writes slots. */
+export function slotLabel(slot: string) {
+  if (!/^\d{4}-\d{2}-\d{2}T/.test(slot)) return slot;
+  const at = new Date(slot);
+  if (Number.isNaN(at.getTime())) return slot;
+  const day = at.toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata", weekday: "short", day: "numeric", month: "short" });
+  const time = at.toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata", hour: "numeric", minute: "2-digit", hour12: true });
+  return `${day} · ${time.toLowerCase()}`;
+}
+
 export function accountVerified() {
   return !isLive() || verified;
 }
@@ -90,7 +100,7 @@ function plansFrom(rows: Awaited<ReturnType<typeof api.plans>>["plans"]): Plan[]
       id: row.id,
       personId: partnerId,
       venueId: row.venueId,
-      slot: row.slot,
+      slot: slotLabel(row.slot),
       kind: (row.kind as PlanKind) || "coffee",
       status: row.status === "closed" || row.status === "past" ? row.status : "upcoming",
       deposit,

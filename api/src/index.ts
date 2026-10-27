@@ -286,7 +286,11 @@ app.post("/admin/reports/:id/confirm", async (c) => {
 });
 
 app.delete("/account", async (c) => {
-  await deleteAccount(c.env.DB, c.get("userId"));
+  const userId = c.get("userId");
+  // Photos, voice notes and the selfie leave storage too, not just the database.
+  const media = await c.env.DB.prepare(`select id from media_objects where owner_id = ?`).bind(userId).all<{ id: string }>();
+  if (media.results.length) await c.env.MEDIA.delete(media.results.map((row) => row.id));
+  await deleteAccount(c.env.DB, userId);
   return c.json({ ok: true });
 });
 

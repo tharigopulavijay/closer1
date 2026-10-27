@@ -32,15 +32,37 @@ export async function storeMedia(db: D1Database, bucket: R2Bucket, userId: strin
   return { key, kind };
 }
 
+async function opsReviewing(db: D1Database, viewerId: string, ownerId: string) {
+  const row = await db
+    .prepare(
+      `select 1 as n from staff_roles s
+       join profiles p on p.id = ?
+       where s.user_id = ? and s.role = 'ops' and p.verified = 0 and p.deleted_at is null
+         and not exists (select 1 from bans b where b.user_id = s.user_id)`,
+    )
+    .bind(ownerId, viewerId)
+    .first();
+  return Boolean(row);
+}
+
 export async function readMedia(db: D1Database, bucket: R2Bucket, viewerId: string, key: string) {
   const row = await db
     .prepare(`select owner_id, kind from media_objects where id = ?`)
     .bind(key)
     .first<{ owner_id: string; kind: string }>();
   if (!row) fail("not visible", 404);
+  const own = viewerId === row.owner_id;
+  // Ops sees an unverified member's selfie and photos to compare them; every selfie view is logged.
+  const reviewing = !own && (await opsReviewing(db, viewerId, row.owner_id));
   if (row.kind === "selfie") {
-    if (viewerId !== row.owner_id) fail("not visible", 404);
-  } else if (!(await canView(db, viewerId, row.owner_id))) {
+    if (!own && !reviewing) fail("not visible", 404);
+    if (reviewing) {
+      await db
+        .prepare(`insert into audit_log (id, actor, role, action, detail, created_at) values (?, ?, 'ops', 'view_selfie', ?, ?)`)
+        .bind(crypto.randomUUID(), viewerId, row.owner_id, new Date().toISOString())
+        .run();
+    }
+  } else if (!own && !reviewing && !(await canView(db, viewerId, row.owner_id))) {
     fail("not visible", 404);
   }
   const object = await bucket.get(key);

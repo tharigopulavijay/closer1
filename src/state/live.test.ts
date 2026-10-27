@@ -20,6 +20,12 @@ describe("live mode switch", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("shows exact plan times in India time and leaves written slots alone", async () => {
+    const live = await import("./live");
+    expect(live.slotLabel("2099-01-01T13:30:00.000Z")).toMatch(/Thu,? 1 Jan · 7:00 pm/);
+    expect(live.slotLabel("Sat · 8:00 pm")).toBe("Sat · 8:00 pm");
+  });
+
   it("switches to live when VITE_API_URL is set", async () => {
     vi.stubEnv("VITE_API_URL", "http://api.test");
     const live = await import("./live");

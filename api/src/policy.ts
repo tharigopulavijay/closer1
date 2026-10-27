@@ -663,6 +663,7 @@ export async function deleteAccount(db: D1Database, userId: string) {
     db.prepare(`delete from sessions where user_id = ?`).bind(userId),
     db.prepare(`delete from profile_photos where user_id = ?`).bind(userId),
     db.prepare(`delete from voice_answers where user_id = ?`).bind(userId),
+    db.prepare(`delete from media_objects where owner_id = ?`).bind(userId),
     db.prepare(`delete from preferences where user_id = ?`).bind(userId),
     db.prepare(`delete from contact_hashes where owner_id = ?`).bind(userId),
     db.prepare(`delete from contact_allowlist where owner_id = ?`).bind(userId),
@@ -780,11 +781,12 @@ export async function readPreferences(db: D1Database, userId: string) {
 }
 
 async function writeHashes(db: D1Database, table: "contact_hashes" | "contact_allowlist", userId: string, hashes: string[]) {
-  await db.prepare(`delete from ${table} where owner_id = ?`).bind(userId).run();
-  for (let i = 0; i < hashes.length; i += 40) {
-    const slice = hashes.slice(i, i + 40);
-    await db.batch(slice.map((hash) => db.prepare(`insert into ${table} (owner_id, hash) values (?, ?)`).bind(userId, hash)));
-  }
+  // One atomic batch of two statements: a failed upload never leaves the list half-replaced,
+  // and 5000 contacts stay far below D1's per-request query limit.
+  await db.batch([
+    db.prepare(`delete from ${table} where owner_id = ?`).bind(userId),
+    db.prepare(`insert into ${table} (owner_id, hash) select ?, value from json_each(?)`).bind(userId, JSON.stringify(hashes)),
+  ]);
 }
 
 export async function replaceContactHashes(db: D1Database, userId: string, hashes: unknown) {
@@ -830,11 +832,20 @@ export async function registerProfilePhoto(db: D1Database, userId: string, key: 
 export async function deleteProfilePhoto(db: D1Database, userId: string, photoId: string) {
   await assertActive(db, userId);
   const row = await db
-    .prepare(`select id from profile_photos where id = ? and user_id = ?`)
+    .prepare(`select id, is_main from profile_photos where id = ? and user_id = ?`)
     .bind(photoId, userId)
-    .first();
+    .first<{ id: string; is_main: number }>();
   if (!row) fail("not your photo", 404);
-  await db.prepare(`delete from profile_photos where id = ?`).bind(photoId).run();
+  const statements = [db.prepare(`delete from profile_photos where id = ?`).bind(photoId)];
+  // Removing the main photo promotes the oldest remaining one, so a profile is never left without a face.
+  if (row.is_main) {
+    statements.push(
+      db
+        .prepare(`update profile_photos set is_main = 1 where id = (select id from profile_photos where user_id = ? order by rowid limit 1)`)
+        .bind(userId),
+    );
+  }
+  await db.batch(statements);
   return { ok: true };
 }
 
@@ -963,15 +974,25 @@ export async function verifyMember(db: D1Database, actorId: string, targetId: st
 
 export async function verifyQueue(db: D1Database, actorId: string) {
   if (!(await staffRole(db, actorId, "ops"))) fail("ops only");
+  if (await banned(db, actorId)) fail("banned");
   const rows = await db
     .prepare(
-      `select p.id from profiles p
+      `select p.id, p.display_name,
+         (select json_group_array(m.id) from media_objects m where m.owner_id = p.id and m.kind = 'selfie') as selfies,
+         (select json_group_array(f.storage_path) from profile_photos f where f.user_id = p.id) as photos
+       from profiles p
        where p.verified = 0 and p.deleted_at is null
          and exists (select 1 from media_objects m where m.owner_id = p.id and m.kind = 'selfie')
        order by p.created_at`,
     )
-    .all<{ id: string }>();
-  return rows.results.map((row) => ({ id: row.id }));
+    .all<{ id: string; display_name: string; selfies: string; photos: string }>();
+  // Ops needs the selfie and the profile photos side by side to decide.
+  return rows.results.map((row) => ({
+    id: row.id,
+    displayName: row.display_name,
+    selfies: JSON.parse(row.selfies) as string[],
+    photos: JSON.parse(row.photos) as string[],
+  }));
 }
 
 export async function listBuckets(db: D1Database) {

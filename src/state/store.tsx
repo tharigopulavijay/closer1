@@ -20,6 +20,8 @@ function load(): AppState {
 
 type Store = {
   state: AppState;
+  /** False only in live mode while the first account refresh is in flight. */
+  loaded: boolean;
   current: () => AppState;
   commit: (next: AppState) => void;
 };
@@ -36,12 +38,19 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     document.title = state.discreet ? "Notes" : "Closer";
   }, [state]);
 
+  // In live mode nothing is known about the account until the first refresh lands,
+  // so screens wait for it instead of judging a verified member as unverified.
+  const [loaded, setLoaded] = useState(() => !isLive() || !sessionToken());
+
   useEffect(() => {
     if (!isLive() || !sessionToken()) return;
-    void refresh(ref.current).then((next) => {
-      ref.current = next;
-      setState(next);
-    });
+    void refresh(ref.current)
+      .then((next) => {
+        ref.current = next;
+        setState(next);
+      })
+      .catch(() => undefined)
+      .finally(() => setLoaded(true));
   }, []);
 
   const api = useMemo<Pick<Store, "current" | "commit">>(
@@ -55,7 +64,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     [],
   );
 
-  return <Ctx.Provider value={{ state, ...api }}>{children}</Ctx.Provider>;
+  return <Ctx.Provider value={{ state, loaded, ...api }}>{children}</Ctx.Provider>;
 }
 
 export function useStore() {

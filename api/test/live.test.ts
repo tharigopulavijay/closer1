@@ -160,12 +160,43 @@ describe("live routes", () => {
     expect((await api(`/admin/users/${U}/verify`, { method: "POST", token: token[S] })).status).toBe(403);
     await env.DB.prepare(`insert into staff_roles (user_id, role) values (?, 'ops')`).bind(O1).run();
     const queue = await api("/admin/verify-queue", { token: token[O1] });
-    expect((queue.json as { queue: { id: string }[] }).queue.map((row) => row.id)).toContain(U);
+    const entry = (queue.json as { queue: { id: string; selfies: string[] }[] }).queue.find((row) => row.id === U);
+    expect(entry?.selfies).toEqual([selfie]);
+    expect((await api(`/media/${selfie}`, { token: token[S] })).status).toBe(404);
+    const seen = await SELF.fetch(`http://closer.test/media/${selfie}`, { headers: { authorization: `Bearer ${token[O1]}` } });
+    await seen.arrayBuffer();
+    expect(seen.status).toBe(200);
+    expect(await count(`select count(*) as n from audit_log where actor = ? and action = 'view_selfie' and detail = ?`, O1, U)).toBe(1);
     expect((await api(`/admin/users/${U}/verify`, { method: "POST", token: token[O1] })).status).toBe(200);
+    expect((await api(`/media/${selfie}`, { token: token[O1] })).status).toBe(404);
     expect(await count(`select count(*) as n from profiles where id = ? and verified = 1`, U)).toBe(1);
     expect(await count(`select count(*) as n from audit_log where actor = ? and role = 'ops' and action = 'verify' and detail = ?`, O1, U)).toBe(1);
     const after = await api("/admin/verify-queue", { token: token[O1] });
     expect((after.json as { queue: { id: string }[] }).queue.map((row) => row.id)).not.toContain(U);
+  });
+
+  it("promotes another photo when the main one is removed", async () => {
+    const first = await api("/me/photos", { token: token[A], body: { key: await upload(A, "photo") } });
+    const second = await api("/me/photos", { token: token[A], body: { key: await upload(A, "photo") } });
+    expect((first.json as { main: boolean }).main).toBe(true);
+    expect((second.json as { main: boolean }).main).toBe(false);
+    expect((await api(`/me/photos/${(first.json as { id: string }).id}`, { method: "DELETE", token: token[A] })).status).toBe(200);
+    expect(await count(`select count(*) as n from profile_photos where user_id = ? and is_main = 1`, A)).toBe(1);
+  });
+
+  it("stores a full contact book in one request", async () => {
+    const book = Array.from({ length: 5000 }, (_, index) => index.toString(16).padStart(64, "0"));
+    expect((await api("/contacts", { method: "PUT", token: token[A], body: { hashes: book } })).status).toBe(200);
+    expect(await count(`select count(*) as n from contact_hashes where owner_id = ?`, A)).toBe(5000);
+  });
+
+  it("removes a deleted member's photos and selfie from storage", async () => {
+    const photo = await upload(A, "photo");
+    const selfie = await upload(A, "selfie");
+    expect((await api("/account", { method: "DELETE", token: token[A] })).status).toBe(200);
+    expect(await env.MEDIA.head(photo)).toBeNull();
+    expect(await env.MEDIA.head(selfie)).toBeNull();
+    expect(await count(`select count(*) as n from media_objects where owner_id = ?`, A)).toBe(0);
   });
 
   it("allows only listed origins and never cookie credentials", async () => {

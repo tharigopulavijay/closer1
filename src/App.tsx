@@ -14,8 +14,13 @@ import { accountVerified } from "./state/live";
 import { useStore } from "./state/store";
 import { Phone } from "./ui/shell";
 
+function Loading() {
+  return <p className="p-6 text-sm text-mute">Loading…</p>;
+}
+
 function Home() {
-  const { state } = useStore();
+  const { state, loaded } = useStore();
+  if (!loaded) return <Loading />;
   if (state.deletedAt) return <Welcome />;
   if (isLive() && sessionToken() && state.draft.completed && !accountVerified()) return <Navigate to="/waiting" replace />;
   if (state.ready && accountVerified()) return <Navigate to="/drop" replace />;
@@ -23,8 +28,9 @@ function Home() {
 }
 
 function RequireReady({ children }: { children: React.ReactNode }) {
-  const { state } = useStore();
+  const { state, loaded } = useStore();
   if (isLive() && !sessionToken()) return <Navigate to="/login" replace />;
+  if (!loaded) return <Loading />;
   if (isLive() && !accountVerified()) return <Navigate to="/waiting" replace />;
   if (state.deletedAt || !state.ready) return <Navigate to="/" replace />;
   return children;

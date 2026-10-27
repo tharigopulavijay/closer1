@@ -15,6 +15,26 @@ import {
   setSharing,
 } from "../../state/logic";
 import { addTrusted, fileReport, triggerSos } from "../../state/live";
+
+type Coords = { lat: number | null; lng: number | null };
+
+function phoneLocation(fallback: Coords): Promise<Coords> {
+  return new Promise((resolve) => {
+    if (typeof navigator === "undefined" || !navigator.geolocation) return resolve(fallback);
+    const timer = setTimeout(() => resolve(fallback), 6000);
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        clearTimeout(timer);
+        resolve({ lat: position.coords.latitude, lng: position.coords.longitude });
+      },
+      () => {
+        clearTimeout(timer);
+        resolve(fallback);
+      },
+      { enableHighAccuracy: true, timeout: 5000, maximumAge: 30000 },
+    );
+  });
+}
 import { useStore } from "../../state/store";
 import { Button, Card, Chip, Headline, inputClass } from "../../ui/primitives";
 import { Screen } from "../../ui/shell";
@@ -134,11 +154,14 @@ export function DateDay() {
       const value = Math.min(1, (time - began) / 2000);
       setHold(value);
       if (value >= 1) {
-        const coords = { lat: venue?.lat ?? null, lng: venue?.lng ?? null };
+        const fallback = { lat: venue?.lat ?? null, lng: venue?.lng ?? null };
         const link = document.createElement("a");
         link.href = "tel:112";
         link.click();
-        void triggerSos(current(), planId, coords).then((next) => commit(next));
+        // Where the phone is, not where the date was booked; the venue only if the phone won't say.
+        void phoneLocation(fallback)
+          .then((coords) => triggerSos(current(), planId, coords))
+          .then((next) => commit(next));
         setSosNote("112 is opening. Trusted contacts and the safety desk get the location when the phone allows it.");
         return;
       }
