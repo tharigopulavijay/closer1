@@ -403,7 +403,11 @@ export function Settings() {
           Download my data
         </Button>
         <Card>
-          <p className="text-sm">Delete is a 30-day soft close. Type DELETE to confirm.</p>
+          <p className="text-sm">
+            {isLive()
+              ? "Deleting removes your profile, photos, selfie and voice at once. It cannot be undone. Type DELETE to confirm."
+              : "Delete is a 30-day soft close. Type DELETE to confirm."}
+          </p>
           <input className={`${inputClass} mt-3`} value={confirm} onChange={(event) => setConfirm(event.target.value)} />
           <div className="mt-3">
             <Button
@@ -458,6 +462,16 @@ export function Licences() {
 export function Welcome() {
   const { state, commit } = useStore();
   const navigate = useNavigate();
+  // On the server a deletion is immediate, so live mode never offers a restore that could not happen.
+  if (state.deletedAt && isLive()) {
+    return (
+      <Screen>
+        <h2 className="font-serif text-5xl">Account <span className="italic text-gold">deleted</span></h2>
+        <p className="mt-3 text-sm text-mute">Your profile, photos, selfie and voice have been removed. Thank you for trying Closer.</p>
+        <div className="mt-6"><Button onClick={() => { commit(blankState()); navigate("/login"); }}>Start again with a new sign-in</Button></div>
+      </Screen>
+    );
+  }
   if (state.deletedAt) {
     const purge = addDays(new Date(state.deletedAt), 30);
     return (

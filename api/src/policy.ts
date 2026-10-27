@@ -1,6 +1,6 @@
 import { phoneDigits, randomToken, sha256 } from "./crypto";
 import { fail } from "./env";
-import { addDays, ageYears, daysBetween, isAdultDob, istDate, istMonth, slotInstant } from "./time";
+import { addDays, ageYears, daysBetween, dropDate, isAdultDob, istDate, istMonth, slotInstant } from "./time";
 
 const TRUSTED_LIMIT = 5;
 
@@ -750,7 +750,7 @@ export async function deleteAccount(db: D1Database, userId: string) {
 
 export async function todayDrop(db: D1Database, userId: string, now = new Date()) {
   await assertActive(db, userId);
-  const date = istDate(now);
+  const date = dropDate(now);
   const drop = await db
     .prepare(`select id from drops where user_id = ? and drop_date = ?`)
     .bind(userId, date)

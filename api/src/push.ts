@@ -1,4 +1,5 @@
 import { fail, type Env } from "./env";
+import { dropDate } from "./time";
 
 export type PushSubscriptionRow = {
   user_id: string;
@@ -8,6 +9,12 @@ export type PushSubscriptionRow = {
 };
 
 const RECORD_SIZE = 4096;
+/** Chrome/Android, Firefox, Safari/iOS and Edge push services. */
+const PUSH_HOST = /^(fcm\.googleapis\.com|updates\.push\.services\.mozilla\.com|web\.push\.apple\.com|[a-z0-9-]+\.push\.apple\.com|[a-z0-9-]+\.notify\.windows\.com)$/i;
+const PUSH_LIMIT = 5;
+
+/** The service says this phone is gone for good. */
+class GoneSubscription extends Error {}
 
 function concat(parts: Uint8Array[]) {
   const out = new Uint8Array(parts.reduce((sum, part) => sum + part.length, 0));
@@ -76,10 +83,12 @@ async function vapidJwt(audience: string, publicKey: string, privateKey: string,
 async function encryptPayload(p256dh: string, auth: string, plaintext: string) {
   const clientPublic = b64urlToBytes(p256dh);
   const clientAuth = b64urlToBytes(auth);
-  const local = await crypto.subtle.generateKey({ name: "ECDH", namedCurve: "P-256" }, true, ["deriveBits"]);
+  // workers-types widens generateKey to a single key and names the ECDH field `$public`; the runtime follows WebCrypto.
+  const local = (await crypto.subtle.generateKey({ name: "ECDH", namedCurve: "P-256" }, true, ["deriveBits"])) as CryptoKeyPair;
   const remote = await crypto.subtle.importKey("raw", clientPublic, { name: "ECDH", namedCurve: "P-256" }, false, []);
-  const shared = new Uint8Array(await crypto.subtle.deriveBits({ name: "ECDH", public: remote }, local.privateKey, 256));
-  const localPublic = new Uint8Array(await crypto.subtle.exportKey("raw", local.publicKey));
+  const ecdh = { name: "ECDH", public: remote } as unknown as SubtleCryptoDeriveKeyAlgorithm;
+  const shared = new Uint8Array(await crypto.subtle.deriveBits(ecdh, local.privateKey, 256));
+  const localPublic = new Uint8Array((await crypto.subtle.exportKey("raw", local.publicKey)) as ArrayBuffer);
   const salt = crypto.getRandomValues(new Uint8Array(16));
   const ikm = await hkdf(
     clientAuth,
@@ -124,10 +133,16 @@ export async function subscribePush(
   } catch {
     fail("bad subscription", 400);
   }
-  if (endpoint.protocol !== "https:") fail("bad subscription", 400);
+  // The cron POSTs to every saved endpoint, so only real browser push services are accepted.
+  if (endpoint.protocol !== "https:" || !PUSH_HOST.test(endpoint.hostname)) fail("bad subscription", 400);
   const p256dh = input.p256dh?.trim() ?? "";
   const auth = input.auth?.trim() ?? "";
   if (!p256dh || !auth) fail("bad subscription", 400);
+  const mine = await db
+    .prepare(`select count(*) as n from push_subscriptions where user_id = ? and endpoint != ?`)
+    .bind(userId, endpoint.toString())
+    .first<{ n: number }>();
+  if (Number(mine?.n ?? 0) >= PUSH_LIMIT) fail("too many devices", 400);
   await db
     .prepare(
       `insert into push_subscriptions (user_id, endpoint, p256dh, auth, opted_in, created_at)
@@ -162,11 +177,19 @@ async function deliverPush(env: Env, row: PushSubscriptionRow, body: string) {
     },
     body: encrypted,
   });
-  if (!response.ok && response.status !== 404 && response.status !== 410) fail("could not send reminder", 502);
+  if (response.status === 404 || response.status === 410) throw new GoneSubscription();
+  if (!response.ok) fail("could not send reminder", 502);
 }
 
-/** The 21:00 IST cron tells only members who still have a reminder switched on. */
-export async function sendDropReminders(env: Env, deliver: (env: Env, row: PushSubscriptionRow, body: string) => Promise<void> = deliverPush) {
+/**
+ * The 21:00 IST cron, five minutes after the Drop is built. Only members who opted in
+ * and actually have picks in tonight's Drop are told it is open.
+ */
+export async function sendDropReminders(
+  env: Env,
+  deliver: (env: Env, row: PushSubscriptionRow, body: string) => Promise<void> = deliverPush,
+  now = new Date(),
+) {
   const publicKey = env.VAPID_PUBLIC_KEY?.trim() ?? "";
   const privateKey = env.VAPID_PRIVATE_KEY?.trim() ?? "";
   if (!publicKey || !privateKey) return { sent: [] as string[] };
@@ -175,15 +198,21 @@ export async function sendDropReminders(env: Env, deliver: (env: Env, row: PushS
      from push_subscriptions s
      join profiles p on p.id = s.user_id
      where s.opted_in = 1 and p.deleted_at is null
-       and not exists (select 1 from bans b where b.user_id = s.user_id)`,
-  ).all<PushSubscriptionRow>();
+       and not exists (select 1 from bans b where b.user_id = s.user_id)
+       and exists (select 1 from drops d join drop_picks k on k.drop_id = d.id where d.user_id = s.user_id and d.drop_date = ?)`,
+  )
+    .bind(dropDate(now))
+    .all<PushSubscriptionRow>();
   const sent: string[] = [];
   for (const row of rows.results) {
     try {
       await deliver(env, row, JSON.stringify({ title: "The Drop is open", body: "Three people are waiting. Have a look before midnight." }));
       sent.push(row.user_id);
-    } catch {
-      // One phone failing must not stop the rest of the list.
+    } catch (error) {
+      // A phone the service has forgotten is removed; any other failure must not stop the rest of the list.
+      if (error instanceof GoneSubscription) {
+        await env.DB.prepare(`delete from push_subscriptions where user_id = ? and endpoint = ?`).bind(row.user_id, row.endpoint).run();
+      }
     }
   }
   return { sent };

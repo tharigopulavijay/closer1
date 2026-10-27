@@ -432,10 +432,14 @@ app.get("/service/trusted-contacts/:id/token", async (c) => {
 
 export { PlanChat };
 
+const REMIND_CRON = "30 15 * * *";
+
 export default {
   fetch: (request: Request, env: Env, ctx: ExecutionContext) => app.fetch(request, env, ctx),
   scheduled: (_event: ScheduledController, env: Env, ctx: ExecutionContext) => {
     const when = new Date(_event.scheduledTime);
-    ctx.waitUntil(Promise.all([buildTomorrowDrop(env.DB, when), sendDropReminders(env)]));
+    // 20:55 IST builds the next Drop; 21:00 IST tells people it is open, once it really is.
+    if (_event.cron === REMIND_CRON) ctx.waitUntil(sendDropReminders(env, undefined, when));
+    else ctx.waitUntil(buildTomorrowDrop(env.DB, when));
   },
 };
