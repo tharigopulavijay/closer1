@@ -144,7 +144,7 @@ export async function readPhotos(db: D1Database, viewerId: string, targetId: str
 }
 
 /** What other members see: age, never the date of birth or privacy settings. */
-function publicProfile(row: Profile) {
+export function publicProfile(row: Profile) {
   return {
     id: row.id,
     displayName: row.display_name,
@@ -663,6 +663,7 @@ export async function deleteAccount(db: D1Database, userId: string) {
     db.prepare(`delete from sessions where user_id = ?`).bind(userId),
     db.prepare(`delete from profile_photos where user_id = ?`).bind(userId),
     db.prepare(`delete from voice_answers where user_id = ?`).bind(userId),
+    db.prepare(`delete from media_objects where owner_id = ?`).bind(userId),
     db.prepare(`delete from preferences where user_id = ?`).bind(userId),
     db.prepare(`delete from contact_hashes where owner_id = ?`).bind(userId),
     db.prepare(`delete from contact_allowlist where owner_id = ?`).bind(userId),
@@ -689,12 +690,309 @@ export async function todayDrop(db: D1Database, userId: string, now = new Date()
     .prepare(`select id from drops where user_id = ? and drop_date = ?`)
     .bind(userId, date)
     .first<{ id: string }>();
-  if (!drop) return { date, picks: [] };
+  if (!drop) return { date, picks: [] as DropPick[] };
   const picks = await db
     .prepare(`select person_id, position from drop_picks where drop_id = ? order by position`)
     .bind(drop.id)
     .all<{ person_id: string; position: number }>();
-  return { date, picks: picks.results.map((pick) => ({ personId: pick.person_id, position: pick.position })) };
+  const enriched: DropPick[] = [];
+  for (const pick of picks.results) {
+    const visible = await canView(db, userId, pick.person_id);
+    const row = visible ? await profile(db, pick.person_id) : null;
+    const photos = visible ? await readPhotos(db, userId, pick.person_id) : [];
+    enriched.push({
+      personId: pick.person_id,
+      position: pick.position,
+      profile: row ? publicProfile(row) : null,
+      photos: photos.map((photo) => photo.storage_path),
+    });
+  }
+  return { date, picks: enriched };
+}
+
+type DropPick = {
+  personId: string;
+  position: number;
+  profile: ReturnType<typeof publicProfile> | null;
+  photos: string[];
+};
+
+const SHA256_HEX = /^[0-9a-f]{64}$/i;
+
+function hashList(value: unknown) {
+  if (!Array.isArray(value)) fail("bad hashes", 400);
+  if (value.length > 5000) fail("too many", 400);
+  const hashes: string[] = [];
+  for (const item of value) {
+    if (typeof item !== "string" || !SHA256_HEX.test(item)) fail("bad hash", 400);
+    hashes.push(item.toLowerCase());
+  }
+  return [...new Set(hashes)];
+}
+
+function stringList(value: unknown, label: string) {
+  if (!Array.isArray(value) || value.some((item) => typeof item !== "string")) fail(`bad ${label}`, 400);
+  return value;
+}
+
+function ageBound(value: unknown, label: string) {
+  if (typeof value !== "number" || !Number.isInteger(value)) fail(`bad ${label}`, 400);
+  return value;
+}
+
+export async function savePreferences(
+  db: D1Database,
+  userId: string,
+  input: { areas?: unknown; languages?: unknown; ageMin?: unknown; ageMax?: unknown; foods?: unknown },
+) {
+  await assertActive(db, userId);
+  const areas = stringList(input.areas, "areas");
+  const languages = stringList(input.languages, "languages");
+  const foods = stringList(input.foods, "foods");
+  const ageMin = ageBound(input.ageMin, "ageMin");
+  const ageMax = ageBound(input.ageMax, "ageMax");
+  if (ageMin < 18 || ageMin > 70 || ageMax > 70 || ageMin > ageMax) fail("bad age", 400);
+  await db
+    .prepare(
+      `insert into preferences (user_id, areas, languages, age_min, age_max, foods)
+       values (?, ?, ?, ?, ?, ?)
+       on conflict(user_id) do update set areas = excluded.areas, languages = excluded.languages,
+         age_min = excluded.age_min, age_max = excluded.age_max, foods = excluded.foods`,
+    )
+    .bind(userId, JSON.stringify(areas), JSON.stringify(languages), ageMin, ageMax, JSON.stringify(foods))
+    .run();
+  return readPreferences(db, userId);
+}
+
+export async function readPreferences(db: D1Database, userId: string) {
+  await assertActive(db, userId);
+  const row = await db
+    .prepare(`select areas, languages, age_min, age_max, foods from preferences where user_id = ?`)
+    .bind(userId)
+    .first<{ areas: string; languages: string; age_min: number; age_max: number; foods: string }>();
+  if (!row) return { areas: [], languages: [], ageMin: 18, ageMax: 70, foods: [] };
+  return {
+    areas: JSON.parse(row.areas) as string[],
+    languages: JSON.parse(row.languages) as string[],
+    ageMin: row.age_min,
+    ageMax: row.age_max,
+    foods: JSON.parse(row.foods) as string[],
+  };
+}
+
+async function writeHashes(db: D1Database, table: "contact_hashes" | "contact_allowlist", userId: string, hashes: string[]) {
+  // One atomic batch of two statements: a failed upload never leaves the list half-replaced,
+  // and 5000 contacts stay far below D1's per-request query limit.
+  await db.batch([
+    db.prepare(`delete from ${table} where owner_id = ?`).bind(userId),
+    db.prepare(`insert into ${table} (owner_id, hash) select ?, value from json_each(?)`).bind(userId, JSON.stringify(hashes)),
+  ]);
+}
+
+export async function replaceContactHashes(db: D1Database, userId: string, hashes: unknown) {
+  await assertActive(db, userId);
+  await writeHashes(db, "contact_hashes", userId, hashList(hashes));
+  return { ok: true };
+}
+
+export async function replaceAllowlist(db: D1Database, userId: string, hashes: unknown) {
+  await assertActive(db, userId);
+  await writeHashes(db, "contact_allowlist", userId, hashList(hashes));
+  return { ok: true };
+}
+
+async function ownedMedia(db: D1Database, userId: string, key: string, kind: string) {
+  const row = await db
+    .prepare(`select owner_id, kind from media_objects where id = ?`)
+    .bind(key)
+    .first<{ owner_id: string; kind: string }>();
+  if (!row || row.owner_id !== userId || row.kind !== kind) fail("not your media", 400);
+}
+
+export async function registerProfilePhoto(db: D1Database, userId: string, key: string, main = false) {
+  await assertActive(db, userId);
+  if (!key) fail("not your media", 400);
+  await ownedMedia(db, userId, key, "photo");
+  const existing = await db
+    .prepare(`select id, is_main from profile_photos where user_id = ?`)
+    .bind(userId)
+    .all<{ id: string; is_main: number }>();
+  if (existing.results.length >= 6) fail("photo limit", 400);
+  const makeMain = main || existing.results.every((row) => !row.is_main);
+  const id = crypto.randomUUID();
+  const statements = [];
+  if (makeMain) statements.push(db.prepare(`update profile_photos set is_main = 0 where user_id = ?`).bind(userId));
+  statements.push(
+    db.prepare(`insert into profile_photos (id, user_id, storage_path, is_main) values (?, ?, ?, ?)`).bind(id, userId, key, makeMain ? 1 : 0),
+  );
+  await db.batch(statements);
+  return { id, main: makeMain };
+}
+
+export async function deleteProfilePhoto(db: D1Database, userId: string, photoId: string) {
+  await assertActive(db, userId);
+  const row = await db
+    .prepare(`select id, is_main from profile_photos where id = ? and user_id = ?`)
+    .bind(photoId, userId)
+    .first<{ id: string; is_main: number }>();
+  if (!row) fail("not your photo", 404);
+  const statements = [db.prepare(`delete from profile_photos where id = ?`).bind(photoId)];
+  // Removing the main photo promotes the oldest remaining one, so a profile is never left without a face.
+  if (row.is_main) {
+    statements.push(
+      db
+        .prepare(`update profile_photos set is_main = 1 where id = (select id from profile_photos where user_id = ? order by rowid limit 1)`)
+        .bind(userId),
+    );
+  }
+  await db.batch(statements);
+  return { ok: true };
+}
+
+export async function registerVoice(db: D1Database, userId: string, key: string, prompt: string, seconds: number) {
+  await assertActive(db, userId);
+  if (!prompt.trim()) fail("bad prompt", 400);
+  if (!Number.isInteger(seconds) || seconds < 1 || seconds > 30) fail("bad seconds", 400);
+  await ownedMedia(db, userId, key, "voice");
+  const id = crypto.randomUUID();
+  await db
+    .prepare(`insert into voice_answers (id, user_id, prompt, storage_path, seconds) values (?, ?, ?, ?, ?)`)
+    .bind(id, userId, prompt.trim(), key, seconds)
+    .run();
+  return { id };
+}
+
+type PlanRow = Plan & { venue_id: string; slot: string; kind: string };
+
+export async function listMyPlans(db: D1Database, userId: string) {
+  await assertActive(db, userId);
+  const plans = await db
+    .prepare(`select * from plans where owner_id = ? or person_id = ? order by created_at desc`)
+    .bind(userId, userId)
+    .all<PlanRow>();
+  const out = [];
+  for (const plan of plans.results) {
+    const partnerId = plan.owner_id === userId ? plan.person_id : plan.owner_id;
+    let partner: ReturnType<typeof publicProfile> | { id: string; visible: false } | null = null;
+    if (partnerId) {
+      if (await canView(db, userId, partnerId)) {
+        const row = await profile(db, partnerId);
+        partner = row ? publicProfile(row) : { id: partnerId, visible: false };
+      } else {
+        partner = { id: partnerId, visible: false };
+      }
+    }
+    const deposits = await db
+      .prepare(`select user_id, status from deposits where plan_id = ?`)
+      .bind(plan.id)
+      .all<{ user_id: string; status: string }>();
+    out.push({
+      id: plan.id,
+      status: plan.status,
+      venueId: plan.venue_id,
+      slot: plan.slot,
+      kind: plan.kind,
+      bookedAt: plan.booked_at,
+      partner,
+      deposits: deposits.results.map((row) => ({ userId: row.user_id, status: row.status })),
+      chatOpen: await chatOpen(db, plan),
+      keptByMe: plan.owner_id === userId ? Boolean(plan.kept_by_owner) : Boolean(plan.kept_by_person),
+      keptByThem: plan.owner_id === userId ? Boolean(plan.kept_by_person) : Boolean(plan.kept_by_owner),
+    });
+  }
+  return out;
+}
+
+export async function listPlanMessages(db: D1Database, userId: string, planId: string, before?: string) {
+  await assertChatAccess(db, userId, planId);
+  const rows = before
+    ? await db
+        .prepare(
+          `select id, sender_id, body, created_at from messages where plan_id = ? and created_at < ? order by created_at desc limit 50`,
+        )
+        .bind(planId, before)
+        .all<{ id: string; sender_id: string | null; body: string; created_at: string }>()
+    : await db
+        .prepare(`select id, sender_id, body, created_at from messages where plan_id = ? order by created_at desc limit 50`)
+        .bind(planId)
+        .all<{ id: string; sender_id: string | null; body: string; created_at: string }>();
+  return rows.results.reverse().map((row) => ({
+    id: row.id,
+    senderId: row.sender_id,
+    body: row.body,
+    createdAt: row.created_at,
+  }));
+}
+
+async function visiblePeople(db: D1Database, viewerId: string, ids: string[]) {
+  const people = [];
+  for (const id of ids) {
+    if (!(await canView(db, viewerId, id))) continue;
+    const row = await profile(db, id);
+    if (!row) continue;
+    people.push({ id, profile: publicProfile(row) });
+  }
+  return people;
+}
+
+export async function listMatches(db: D1Database, userId: string) {
+  await assertActive(db, userId);
+  const rows = await db
+    .prepare(`select user_a, user_b from matches where user_a = ? or user_b = ?`)
+    .bind(userId, userId)
+    .all<{ user_a: string; user_b: string }>();
+  const ids = rows.results.map((row) => (row.user_a === userId ? row.user_b : row.user_a));
+  return visiblePeople(db, userId, ids);
+}
+
+export async function listReceivedLikes(db: D1Database, userId: string) {
+  await assertActive(db, userId);
+  const rows = await db
+    .prepare(`select from_id from likes where to_id = ?`)
+    .bind(userId)
+    .all<{ from_id: string }>();
+  return visiblePeople(db, userId, rows.results.map((row) => row.from_id));
+}
+
+export async function verifyMember(db: D1Database, actorId: string, targetId: string) {
+  if (!(await staffRole(db, actorId, "ops"))) fail("ops only");
+  if (await banned(db, actorId)) fail("banned");
+  const target = await profile(db, targetId);
+  if (!target || target.deleted_at) fail("missing user", 404);
+  const now = new Date().toISOString();
+  await db.batch([
+    db.prepare(`update profiles set verified = 1 where id = ?`).bind(targetId),
+    db.prepare(`insert into audit_log (id, actor, role, action, detail, created_at) values (?, ?, 'ops', 'verify', ?, ?)`).bind(
+      crypto.randomUUID(),
+      actorId,
+      targetId,
+      now,
+    ),
+  ]);
+  return { ok: true };
+}
+
+export async function verifyQueue(db: D1Database, actorId: string) {
+  if (!(await staffRole(db, actorId, "ops"))) fail("ops only");
+  if (await banned(db, actorId)) fail("banned");
+  const rows = await db
+    .prepare(
+      `select p.id, p.display_name,
+         (select json_group_array(m.id) from media_objects m where m.owner_id = p.id and m.kind = 'selfie') as selfies,
+         (select json_group_array(f.storage_path) from profile_photos f where f.user_id = p.id) as photos
+       from profiles p
+       where p.verified = 0 and p.deleted_at is null
+         and exists (select 1 from media_objects m where m.owner_id = p.id and m.kind = 'selfie')
+       order by p.created_at`,
+    )
+    .all<{ id: string; display_name: string; selfies: string; photos: string }>();
+  // Ops needs the selfie and the profile photos side by side to decide.
+  return rows.results.map((row) => ({
+    id: row.id,
+    displayName: row.display_name,
+    selfies: JSON.parse(row.selfies) as string[],
+    photos: JSON.parse(row.photos) as string[],
+  }));
 }
 
 export async function listBuckets(db: D1Database) {

@@ -3,10 +3,9 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { MILESTONES, type DisplayMode } from "../../lib/types";
 import { addDays } from "../../lib/time";
+import { isLive } from "../../lib/env";
 import {
   blankState,
-  claimGift,
-  deleteAccount,
   enterPreview,
   purchasePlan,
   rechargeSaathi,
@@ -14,9 +13,9 @@ import {
   saveDraft,
   setDiscreet,
   setDisplayMode,
-  setPaused,
   spendSaathiMinute,
 } from "../../state/logic";
+import { claimGift, deleteAccount, logout, savePreferences, setPaused } from "../../state/live";
 import { useStore } from "../../state/store";
 import { Button, Card, Chip, Headline, Toggle, inputClass } from "../../ui/primitives";
 import { SELF_PHOTOS, SAMPLE_FACES } from "../../ui/photos";
@@ -88,7 +87,7 @@ export function YouHome() {
       <div className="mt-4 space-y-3">
         <Toggle on={state.draft.hideFromContacts} onChange={(hideFromContacts) => commit(saveDraft(current(), { hideFromContacts }))} label="Hide me from all my contacts" hint="On by default. People you allow can still see you." />
         <Toggle on={state.discreet} onChange={(discreet) => commit(setDiscreet(current(), discreet))} label="Discreet mode" hint="The title becomes Notes, and names blur in rooms." />
-        <Toggle on={state.paused} onChange={(paused) => commit(setPaused(current(), paused))} label="Pause my profile" hint="You disappear from the Drop until you turn this off." />
+        <Toggle on={state.paused} onChange={(paused) => void setPaused(current(), paused).then(commit)} label="Pause my profile" hint="You disappear from the Drop until you turn this off." />
       </div>
       <button type="button" onClick={() => navigate("/you/plus")} className="mt-4 flex min-h-11 w-full items-center gap-3 rounded-3xl border border-gold/40 bg-card px-4 py-3 text-left">
         <Sparkles size={18} className="text-gold" />
@@ -137,7 +136,19 @@ export function PreferencesEdit() {
   const navigate = useNavigate();
   return (
     <Screen title="Preferences" back="/you">
-      <Preferences draft={state.draft} onChange={(patch) => commit(saveDraft(current(), patch))} onNext={() => navigate("/you")} />
+      <Preferences draft={state.draft} onChange={(patch) => {
+        const next = saveDraft(current(), patch);
+        commit(next);
+        if (isLive()) {
+          void savePreferences({
+            areas: next.draft.areas,
+            languages: next.draft.languages,
+            ageMin: next.draft.ageMin,
+            ageMax: next.draft.ageMax,
+            foods: next.draft.foods,
+          });
+        }
+      }} onNext={() => navigate("/you")} />
     </Screen>
   );
 }
@@ -181,7 +192,7 @@ export function GiftClaim() {
           <textarea className="mt-4 h-28 w-full rounded-2xl border border-line bg-card p-3" placeholder="Address for fulfilment" value={address} onChange={(event) => setAddress(event.target.value)} />
           <p className="mt-2 text-xs text-mute">The address is visible only to the fulfilment admin, not to matches.</p>
           <div className="mt-4">
-            <Button onClick={() => commit(claimGift(current(), next, gift, address))}>Claim</Button>
+            <Button onClick={() => void claimGift(current(), next, gift, address).then(commit)}>Claim</Button>
           </div>
         </>
       ) : (
@@ -251,7 +262,7 @@ export function Settings() {
   return (
     <Screen title="Settings" back="/you">
       <div className="space-y-3">
-        <Toggle on={state.paused} onChange={(paused) => commit(setPaused(current(), paused))} label="Pause my profile" hint="You disappear from the Drop until you turn this off." />
+        <Toggle on={state.paused} onChange={(paused) => void setPaused(current(), paused).then(commit)} label="Pause my profile" hint="You disappear from the Drop until you turn this off." />
         <Toggle on={state.discreet} onChange={(discreet) => commit(setDiscreet(current(), discreet))} label="Discreet mode" hint="The title becomes Notes, and names blur in rooms." />
         <p className="text-sm text-mute">How you appear in rooms</p>
         <div className="flex gap-2">
@@ -282,17 +293,24 @@ export function Settings() {
               variant="danger"
               disabled={confirm !== "DELETE"}
               onClick={() => {
-                commit(deleteAccount(current()));
-                navigate("/");
+                void deleteAccount(current()).then((next) => {
+                  commit(next);
+                  navigate("/");
+                });
               }}
             >
               Delete account
             </Button>
           </div>
         </Card>
-        <Button variant="ghost" onClick={() => { commit(blankState()); navigate("/"); }}>
-          Start over on this device
+        <Button variant="ghost" onClick={() => { void logout(current()).then((next) => { commit(next); navigate(isLive() ? "/login" : "/"); }); }}>
+          Log out
         </Button>
+        {isLive() ? null : (
+          <Button variant="ghost" onClick={() => { commit(blankState()); navigate("/"); }}>
+            Start over on this device
+          </Button>
+        )}
       </div>
     </Screen>
   );
@@ -333,11 +351,13 @@ export function Welcome() {
       <div className="relative mt-4 overflow-hidden rounded-[28px] border border-line bg-card">
         <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_70%_30%,rgba(255,181,71,0.2),transparent_40%),linear-gradient(180deg,#2A1840,#160E1F)]" />
         <CityMark className="absolute right-3 top-3 h-16 w-24 text-gold" />
-        <div className="relative flex items-end gap-2 px-4 pb-4 pt-28">
-          <img src={SAMPLE_FACES.sameera} alt="" className="h-28 w-20 rounded-2xl object-cover" />
-          <img src={SAMPLE_FACES.ananya} alt="" className="h-36 w-28 rounded-2xl object-cover" />
-          <img src={SAMPLE_FACES.divya} alt="" className="h-28 w-20 rounded-2xl object-cover" />
-        </div>
+        {isLive() ? <div className="relative h-36" /> : (
+          <div className="relative flex items-end gap-2 px-4 pb-4 pt-28">
+            <img src={SAMPLE_FACES.sameera} alt="" className="h-28 w-20 rounded-2xl object-cover" />
+            <img src={SAMPLE_FACES.ananya} alt="" className="h-36 w-28 rounded-2xl object-cover" />
+            <img src={SAMPLE_FACES.divya} alt="" className="h-28 w-20 rounded-2xl object-cover" />
+          </div>
+        )}
         <div className="absolute left-4 top-3 grid h-24 w-24 place-items-center rounded-full border border-gold/80 bg-ink/80 text-center">
           <span>
             <span className="block text-[9px] tracking-[0.16em] text-mute">EVERY NIGHT</span>
@@ -353,7 +373,7 @@ export function Welcome() {
         <p className="rounded-2xl border border-line bg-card px-4 py-3 text-sm">A ₹99 deposit means people actually show up</p>
       </div>
       <div className="mt-auto space-y-3 pt-8">
-        <Button onClick={() => navigate(state.draft.phone ? `/onboarding/${state.draft.step || "phone"}` : "/onboarding/phone")}>
+        <Button onClick={() => navigate(isLive() ? "/login" : state.draft.phone ? `/onboarding/${state.draft.step || "phone"}` : "/onboarding/phone")}>
           Get started
         </Button>
         <Button variant="ghost" onClick={() => { commit(enterPreview()); navigate("/drop"); }}>

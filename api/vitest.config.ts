@@ -14,6 +14,7 @@ export default defineWorkersConfig({
             RAZORPAY_WEBHOOK_SECRET: "razorpay-test-secret",
             LIVEKIT_API_KEY: "lk-test-key",
             LIVEKIT_API_SECRET: "lk-test-secret",
+            ALLOWED_ORIGINS: "http://localhost:5173",
           },
         },
       },

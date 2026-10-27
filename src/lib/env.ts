@@ -1,7 +1,9 @@
 export const env = {
-  supabaseUrl: import.meta.env.VITE_SUPABASE_URL ?? "",
-  supabaseAnonKey: import.meta.env.VITE_SUPABASE_ANON_KEY ?? "",
+  apiUrl: import.meta.env.VITE_API_URL ?? "",
   livekitUrl: import.meta.env.VITE_LIVEKIT_URL ?? "",
 };
 
-export const backendConfigured = Boolean(env.supabaseUrl && env.supabaseAnonKey);
+/** Live mode is on only when the API base URL is set. Preview never uses it. */
+export function isLive() {
+  return Boolean(String(import.meta.env.VITE_API_URL ?? "").trim());
+}

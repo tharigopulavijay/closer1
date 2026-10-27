@@ -1,0 +1,3 @@
+ENVIRONMENT=development
+DEV_OTP=123456
+ALLOWED_ORIGINS=http://localhost:5173

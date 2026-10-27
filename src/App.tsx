@@ -7,18 +7,31 @@ import { AwayScreen, Debrief, PlanChat, PlanDetail, PlansHome } from "./features
 import { ChaiBreak, CreateRoom, LiveRoom, RoomsHome } from "./features/rooms/Rooms";
 import { CheckInPrompt, DateDay, ReportFlow, SafetyHome, SafetySetup, StrikeNotice } from "./features/safety/Safety";
 import { GiftClaim, Licences, Plus, PreferencesEdit, Saathi, Settings, Welcome, YouHome } from "./features/you/You";
+import { Login, Waiting } from "./features/auth/Login";
+import { sessionToken } from "./lib/api";
+import { isLive } from "./lib/env";
+import { accountVerified } from "./state/live";
 import { useStore } from "./state/store";
 import { Phone } from "./ui/shell";
 
+function Loading() {
+  return <p className="p-6 text-sm text-mute">Loading…</p>;
+}
+
 function Home() {
-  const { state } = useStore();
+  const { state, loaded } = useStore();
+  if (!loaded) return <Loading />;
   if (state.deletedAt) return <Welcome />;
-  if (state.ready) return <Navigate to="/drop" replace />;
+  if (isLive() && sessionToken() && state.draft.completed && !accountVerified()) return <Navigate to="/waiting" replace />;
+  if (state.ready && accountVerified()) return <Navigate to="/drop" replace />;
   return <Welcome />;
 }
 
 function RequireReady({ children }: { children: React.ReactNode }) {
-  const { state } = useStore();
+  const { state, loaded } = useStore();
+  if (isLive() && !sessionToken()) return <Navigate to="/login" replace />;
+  if (!loaded) return <Loading />;
+  if (isLive() && !accountVerified()) return <Navigate to="/waiting" replace />;
   if (state.deletedAt || !state.ready) return <Navigate to="/" replace />;
   return children;
 }
@@ -43,6 +56,8 @@ export function App() {
       </Route>
       <Route element={<PhoneLayout />}>
         <Route path="/" element={<Home />} />
+        <Route path="/login" element={<Login />} />
+        <Route path="/waiting" element={<Waiting />} />
         <Route path="/onboarding/:step" element={<Onboarding />} />
         <Route path="/drop" element={<RequireReady><DropHome /></RequireReady>} />
         <Route path="/person/:id" element={<RequireReady><Profile /></RequireReady>} />

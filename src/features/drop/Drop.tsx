@@ -1,15 +1,17 @@
 import { Briefcase, Check, ChevronRight, Clock, Heart, MapPin, Snowflake, Sun } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { PEOPLE, personById } from "../../mocks/people";
+import { PEOPLE } from "../../mocks/people";
+import { isLive } from "../../lib/env";
+import { blockPerson, bookPlan, dropPeople, faceOf, likePerson, openDrop, personOf } from "../../state/live";
 import { VENUES } from "../../mocks/catalog";
 import { currentDropDate, nextDropAt } from "../../lib/time";
 import { MILESTONES, PLAN_KINDS, type PlanKind } from "../../lib/types";
-import { bookPlan, freezeStreak, joinTable, likePerson, openDrop, skipPerson } from "../../state/logic";
+import { freezeStreak, joinTable, skipPerson } from "../../state/logic";
 import { useStore } from "../../state/store";
 import { Button, Card, Chip, Headline, VerifiedPill, inputClass } from "../../ui/primitives";
 import { Screen } from "../../ui/shell";
-import { PERSON_PHOTOS, SELF_PHOTOS } from "../../ui/photos";
+import { SELF_PHOTOS, samplePhoto } from "../../ui/photos";
 import { CityMark, Portrait } from "../../ui/visuals";
 import { selectDrop, type Prefs } from "./api";
 
@@ -45,6 +47,10 @@ function clock(ms: number) {
   return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
 }
 
+function photoSrc(preview: boolean, id: string) {
+  return faceOf(id) ?? samplePhoto(preview, id);
+}
+
 function roleLine(bio: string) {
   const line = bio.split(".")[0]?.trim();
   return line || bio;
@@ -55,18 +61,20 @@ export function DropHome() {
   const navigate = useNavigate();
   const { state, current, commit } = useStore();
   useEffect(() => {
-    commit(openDrop(current(), new Date()));
+    void openDrop(current(), new Date()).then((next) => commit(next));
   }, [commit, current]);
   const picks = useMemo(
     () =>
-      selectDrop(PEOPLE, prefsOf(state), currentDropDate(now), {
+      (isLive()
+        ? dropPeople()
+        : selectDrop(PEOPLE, prefsOf(state), currentDropDate(now), {
         viewerHash: state.draft.phoneHash,
         blocked: state.blocks,
         banned: [],
         now,
         away: Boolean(state.away),
         paused: state.paused,
-      }).filter((person) => !state.skips.includes(person.id) && !state.likes.some((like) => like.personId === person.id)),
+      })).filter((person) => !state.skips.includes(person.id) && !state.likes.some((like) => like.personId === person.id)),
     [now, state],
   );
   const remain = clock(nextDropAt(now).getTime() - now.getTime());
@@ -122,7 +130,7 @@ export function DropHome() {
                 <Portrait
                   name={person.name}
                   palette={person.palette}
-                  src={PERSON_PHOTOS[person.id]}
+                  src={photoSrc(state.preview, person.id)}
                   compact
                   className="h-20 w-20 shrink-0 rounded-2xl"
                 />
@@ -189,9 +197,9 @@ export function DropHome() {
 
 export function Profile() {
   const { id = "" } = useParams();
-  const person = personById(id);
+  const { state, current, commit } = useStore();
+  const person = personOf(id);
   const navigate = useNavigate();
-  const { current, commit } = useStore();
   const [picked, setPicked] = useState<string[]>([]);
   const [note, setNote] = useState("");
   if (!person || !person.verified) {
@@ -212,7 +220,7 @@ export function Profile() {
         <Portrait
           name={person.name}
           palette={person.palette}
-          src={PERSON_PHOTOS[person.id]}
+          src={photoSrc(state.preview, person.id)}
           className="h-72 w-full"
         />
         <div className="relative z-10 -mt-8 space-y-4 rounded-t-[28px] bg-ink px-4 pb-8 pt-5">
@@ -264,7 +272,7 @@ export function Profile() {
             onClick={() => toggle("photo")}
             className={`w-full overflow-hidden rounded-3xl border text-left ${picked.includes("photo") ? "border-gold" : "border-line"}`}
           >
-            <Portrait name={person.name} palette={person.palette} src={PERSON_PHOTOS[person.id]} className="h-40 w-full" />
+            <Portrait name={person.name} palette={person.palette} src={photoSrc(state.preview, person.id)} className="h-40 w-full" />
           </button>
           <Card>
             <p className="text-sm text-mint">
@@ -283,6 +291,17 @@ export function Profile() {
             <Button
               variant="ghost"
               onClick={() => {
+                void blockPerson(current(), person.id).then((next) => {
+                  commit(next);
+                  navigate("/drop");
+                });
+              }}
+            >
+              Block
+            </Button>
+            <Button
+              variant="ghost"
+              onClick={() => {
                 commit(skipPerson(current(), person.id));
                 navigate("/drop");
               }}
@@ -291,9 +310,10 @@ export function Profile() {
             </Button>
             <Button
               onClick={() => {
-                const result = likePerson(current(), person.id, note.trim(), picked);
-                commit(result.state);
-                navigate(result.matched ? `/match/${person.id}` : "/drop");
+                void likePerson(current(), person.id, note.trim(), picked).then((result) => {
+                  commit(result.state);
+                  navigate(result.matched ? `/match/${person.id}` : "/drop");
+                });
               }}
             >
               Send like
@@ -405,7 +425,7 @@ export function StreakScreen() {
 
 export function Mutual() {
   const { id = "" } = useParams();
-  const person = personById(id);
+  const person = personOf(id);
   const navigate = useNavigate();
   const { state, current, commit } = useStore();
   const [slot, setSlot] = useState("");
@@ -433,7 +453,7 @@ export function Mutual() {
         <Portrait
           name={person.name}
           palette={person.palette}
-          src={PERSON_PHOTOS[person.id]}
+          src={photoSrc(state.preview, person.id)}
           className="h-24 w-24 rounded-full border-2 border-gold object-cover"
         />
       </div>
@@ -489,10 +509,11 @@ export function Mutual() {
         <Button
           disabled={!slot || (overlap.length > 0 && !overlap.includes(slot))}
           onClick={() => {
-            const result = bookPlan(current(), { personId: person.id, venueId, slot, kind });
-            commit(result.state);
-            if (result.error || !result.planId) setError(result.error || "Couldn't book");
-            else navigate(`/plans/${result.planId}`);
+            void bookPlan(current(), { personId: person.id, venueId, slot, kind }).then((result) => {
+              commit(result.state);
+              if (result.error || !result.planId) setError(result.error || "Couldn't book");
+              else navigate(`/plans/${result.planId}`);
+            });
           }}
         >
           Book it

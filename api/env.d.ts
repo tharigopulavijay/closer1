@@ -18,6 +18,7 @@ declare module "cloudflare:test" {
     RAZORPAY_WEBHOOK_SECRET: string;
     LIVEKIT_API_KEY: string;
     LIVEKIT_API_SECRET: string;
+    ALLOWED_ORIGINS: string;
     MSG91_KEY?: string;
   }
 }

@@ -14,7 +14,6 @@
     "preview": "vite preview --host 0.0.0.0 --port 4173"
   },
   "dependencies": {
-    "@supabase/supabase-js": "^2.81.1",
     "boardgame.io": "^0.50.2",
     "hono": "^4.13.14",
     "livekit-client": "^2.15.8",
