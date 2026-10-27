@@ -1,10 +1,14 @@
 {
   "name": "closer-api",
+  // Closer's own Cloudflare account (vijaytharigopula14), never the TCOS one.
+  "account_id": "d26276a0890d95cd31e6a938fa4ee4e5",
   "main": "src/index.ts",
   "compatibility_date": "2026-03-10",
   "workers_dev": true,
   "vars": {
-    "ENVIRONMENT": "production"
+    "ENVIRONMENT": "production",
+    // The app's address on Cloudflare Pages. Not a secret: browsers send it on every request.
+    "ALLOWED_ORIGINS": "https://closer-5jq.pages.dev"
   },
   // Secrets stay in the environment (wrangler secret). Never put values here:
   // DEV_OTP, SERVICE_TOKEN, MSG91_KEY, MSG91_TEMPLATE_ID, RAZORPAY_WEBHOOK_SECRET,
@@ -18,7 +22,7 @@
     {
       "binding": "DB",
       "database_name": "closer",
-      "database_id": "00000000-0000-0000-0000-000000000000",
+      "database_id": "c4e0ae90-9752-4c6c-885b-f3836bf7e276",
       "migrations_dir": "migrations"
     }
   ],
@@ -39,7 +43,8 @@
   "migrations": [
     {
       "tag": "v1",
-      "new_classes": ["PlanChat"]
+      // SQLite-backed Durable Objects run on the free plan; the chat only uses the key-value API.
+      "new_sqlite_classes": ["PlanChat"]
     }
   ]
 }
