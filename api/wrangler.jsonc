@@ -1,0 +1,42 @@
+{
+  "name": "closer-api",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-03-10",
+  "workers_dev": true,
+  "vars": {
+    "ENVIRONMENT": "production"
+  },
+  // Secrets stay in the environment (wrangler secret). Never put values here:
+  // DEV_OTP, SERVICE_TOKEN, MSG91_KEY, RAZORPAY_WEBHOOK_SECRET, LIVEKIT_API_KEY, LIVEKIT_API_SECRET.
+  "triggers": {
+    "crons": ["30 15 * * *"]
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "closer",
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "MEDIA",
+      "bucket_name": "closer-media"
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "PLAN_CHAT",
+        "class_name": "PlanChat"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_classes": ["PlanChat"]
+    }
+  ]
+}

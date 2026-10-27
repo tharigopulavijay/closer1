@@ -7,13 +7,16 @@
     "dev": "vite --host 0.0.0.0 --port 5173",
     "build": "tsc --noEmit && vite build",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run",
+    "test": "vitest run src supabase/tests",
     "test:db": "vitest run supabase/tests",
+    "api:test": "vitest run --config api/vitest.config.ts",
+    "api:dev": "wrangler dev --config api/wrangler.jsonc",
     "preview": "vite preview --host 0.0.0.0 --port 4173"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.81.1",
     "boardgame.io": "^0.50.2",
+    "hono": "^4.13.14",
     "livekit-client": "^2.15.8",
     "lucide-react": "^0.546.0",
     "react": "^18.3.1",
@@ -21,6 +24,8 @@
     "react-router-dom": "^6.30.1"
   },
   "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "^0.12.21",
+    "@cloudflare/workers-types": "^4.20260317.1",
     "@electric-sql/pglite": "^0.5.12",
     "@tailwindcss/vite": "^4.1.16",
     "@types/react": "^18.3.26",
@@ -29,6 +34,7 @@
     "tailwindcss": "^4.1.16",
     "typescript": "^5.9.3",
     "vite": "^6.4.1",
-    "vitest": "^3.2.4"
+    "vitest": "^3.2.4",
+    "wrangler": "4.72.0"
   }
 }
