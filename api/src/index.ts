@@ -3,7 +3,7 @@ import { logout, requestOtp, userIdForToken, verifyOtp } from "./auth";
 import { PlanChat } from "./chat";
 import { buildTomorrowDrop } from "./drop";
 import { PolicyError, fail, type Env } from "./env";
-import { issueRoomToken } from "./livekit";
+import { createVoiceRoom, issueRoomToken, joinChai, revealChai } from "./livekit";
 import { readMedia, storeMedia } from "./media";
 import {
   addTrusted,
@@ -26,6 +26,7 @@ import {
   listMyPlans,
   listPlanMessages,
   listReceivedLikes,
+  listReports,
   listTrusted,
   listVisibleIds,
   markDepositPaid,
@@ -33,6 +34,7 @@ import {
   readPreferences,
   readProfile,
   recordActivity,
+  rejectMember,
   registerProfilePhoto,
   registerVoice,
   replaceAllowlist,
@@ -326,6 +328,15 @@ app.get("/admin/verify-queue", async (c) => c.json({ queue: await verifyQueue(c.
 
 app.post("/admin/users/:id/verify", async (c) => c.json(await verifyMember(c.env.DB, c.get("userId"), c.req.param("id"))));
 
+app.post("/admin/users/:id/reject", async (c) => {
+  const body = await c.req.json<{ reason?: string }>();
+  const result = await rejectMember(c.env.DB, c.get("userId"), c.req.param("id"), body.reason ?? "");
+  if (result.selfieKeys.length) await c.env.MEDIA.delete(result.selfieKeys);
+  return c.json({ ok: true });
+});
+
+app.get("/admin/reports", async (c) => c.json({ reports: await listReports(c.env.DB, c.get("userId")) }));
+
 app.post("/admin/reports/:id/confirm", async (c) => {
   const body = await c.req.json<{ action?: string }>();
   await confirmReport(c.env.DB, c.get("userId"), c.req.param("id"), body.action ?? "");
@@ -364,6 +375,15 @@ app.post("/webhooks/razorpay", async (c) => {
   const raw = await c.req.text();
   return c.json(await handleRazorpayWebhook(c.env.DB, c.env.RAZORPAY_WEBHOOK_SECRET, raw, c.req.header("x-razorpay-signature") ?? ""));
 });
+
+app.post("/rooms", async (c) => {
+  const body = await c.req.json<{ title?: string; topic?: string }>();
+  return c.json(await createVoiceRoom(c.env.DB, c.get("userId"), body.title ?? "", body.topic ?? ""));
+});
+
+app.post("/rooms/chai", async (c) => c.json(await joinChai(c.env.DB, c.get("userId"))));
+
+app.post("/rooms/chai/:id/reveal", async (c) => c.json(await revealChai(c.env.DB, c.get("userId"), c.req.param("id"))));
 
 app.post("/rooms/:id/token", async (c) => {
   const token = await issueRoomToken(c.env.DB, c.env.LIVEKIT_API_KEY, c.env.LIVEKIT_API_SECRET, c.get("userId"), c.req.param("id"));

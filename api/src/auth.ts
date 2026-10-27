@@ -13,7 +13,37 @@ function devCode(env: Pick<Env, "DEV_OTP" | "ENVIRONMENT">) {
   return env.DEV_OTP?.trim() ?? "";
 }
 
-export async function requestOtp(env: Pick<Env, "DB" | "DEV_OTP" | "ENVIRONMENT">, phone: string, now = new Date()) {
+type OtpEnv = Pick<Env, "DB" | "DEV_OTP" | "ENVIRONMENT" | "MSG91_KEY" | "MSG91_TEMPLATE_ID">;
+
+function msg91Configured(env: OtpEnv) {
+  return Boolean(env.MSG91_KEY?.trim() || env.MSG91_TEMPLATE_ID?.trim());
+}
+
+/** MSG91 wants a country code. A 10-digit Indian mobile is prefixed; longer numbers are already international. */
+function msg91Mobile(digits: string) {
+  return digits.length === 10 ? `91${digits}` : digits;
+}
+
+async function sendMsg91(env: OtpEnv, digits: string, code: string) {
+  const key = env.MSG91_KEY?.trim() ?? "";
+  const template = env.MSG91_TEMPLATE_ID?.trim() ?? "";
+  if (!key || !template) fail("could not send code", 502);
+  let response: Response;
+  try {
+    response = await fetch("https://control.msg91.com/api/v5/otp", {
+      method: "POST",
+      headers: { authkey: key, accept: "application/json", "content-type": "application/json" },
+      body: JSON.stringify({ template_id: template, mobile: msg91Mobile(digits), otp: code }),
+    });
+  } catch {
+    fail("could not send code", 502);
+  }
+  // The provider may echo the code. Read it only to drain the body, and never log or return it.
+  await response.text();
+  if (!response.ok) fail("could not send code", 502);
+}
+
+export async function requestOtp(env: OtpEnv, phone: string, now = new Date()) {
   const digits = phoneDigits(phone);
   if (digits.length < 10) fail("bad phone", 400);
   const phoneHash = await sha256(digits);
@@ -27,6 +57,9 @@ export async function requestOtp(env: Pick<Env, "DB" | "DEV_OTP" | "ENVIRONMENT"
 
   const dev = devCode(env);
   const code = dev || randomCode();
+  const productionSms = env.ENVIRONMENT === "production" && !dev && msg91Configured(env);
+  // Send before the row exists, so a failed text does not leave a code that can be guessed.
+  if (productionSms) await sendMsg91(env, digits, code);
   const expires = new Date(now.getTime() + OTP_WINDOW_MS).toISOString();
   await env.DB.prepare(
     `insert into otp_codes (id, phone_hash, code_hash, expires_at, attempts, created_at)
@@ -34,7 +67,7 @@ export async function requestOtp(env: Pick<Env, "DB" | "DEV_OTP" | "ENVIRONMENT"
   )
     .bind(crypto.randomUUID(), phoneHash, await sha256(code), expires, now.toISOString())
     .run();
-  if (!dev) await smsSender().send(digits, code);
+  if (!dev && !productionSms) await smsSender().send(digits, code);
   return { sent: !dev };
 }
 

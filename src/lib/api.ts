@@ -107,6 +107,8 @@ export type OwnProfile = {
   hideFromContacts: boolean;
   paused: boolean;
   closerPlus: boolean;
+  retakeNote?: string | null;
+  staffRoles?: string[];
 };
 
 export const api = {
@@ -158,6 +160,21 @@ export const api = {
     ),
   keep: (planId: string) => request<{ ok: boolean }>(`/plans/${planId}/keep`, { method: "POST" }),
   chatTicket: (planId: string) => request<{ ticket: string; expiresAt: string }>(`/plans/${planId}/chat-ticket`, { method: "POST" }),
+  depositOrder: (planId: string) =>
+    request<{ orderId: string; amount: number; currency: string; keyId: string }>(`/plans/${planId}/deposit/order`, { method: "POST" }),
+  createRoom: (title: string, topic: string) => request<{ id: string }>("/rooms", { body: { title, topic } }),
+  roomToken: (roomId: string) => request<{ token: string }>(`/rooms/${roomId}/token`, { method: "POST" }),
+  joinChai: () => request<{ id: string; guestName: string }>("/rooms/chai", { method: "POST" }),
+  revealChai: (roomId: string) =>
+    request<{ revealed: boolean; people?: { id: string; name: string }[] }>(`/rooms/chai/${roomId}/reveal`, { method: "POST" }),
+  verifyQueue: () => request<{ queue: { id: string; displayName: string; selfies: string[]; photos: string[] }[] }>("/admin/verify-queue"),
+  verifyMember: (userId: string) => request<{ ok: boolean }>(`/admin/users/${userId}/verify`, { method: "POST" }),
+  rejectMember: (userId: string, reason: string) => request<{ ok: boolean }>(`/admin/users/${userId}/reject`, { body: { reason } }),
+  adminReports: () =>
+    request<{ reports: { id: string; againstId: string | null; category: string; detail: string; status: string; severe: boolean; createdAt: string }[] }>(
+      "/admin/reports",
+    ),
+  confirmReport: (reportId: string, action: string) => request<{ ok: boolean }>(`/admin/reports/${reportId}/confirm`, { body: { action } }),
   debrief: (planId: string, body: { feel: string; again: string; note: string }) =>
     request<{ ok: boolean }>(`/plans/${planId}/debrief`, { body }),
   report: (body: { againstId: string; category: string; detail: string; severe?: boolean }) => request<{ ok: boolean }>("/reports", { body }),

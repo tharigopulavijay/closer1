@@ -1,4 +1,7 @@
+import { useEffect, useState } from "react";
 import { Link, NavLink, Outlet, useSearchParams } from "react-router-dom";
+import { ApiError, api } from "../../lib/api";
+import { isLive } from "../../lib/env";
 import { VENUES } from "../../mocks/catalog";
 import { adminAct, endRoom, setRole } from "../../state/logic";
 import { useStore } from "../../state/store";
@@ -7,8 +10,160 @@ import type { AdminRole } from "../../lib/types";
 
 const ROLES: AdminRole[] = ["safety", "ops", "finance"];
 
+function NotAllowed() {
+  return (
+    <div className="grid min-h-dvh place-items-center bg-ink p-6 text-cream">
+      <p className="font-serif text-4xl">not allowed</p>
+    </div>
+  );
+}
+
+function useStaffRoles() {
+  const [roles, setRoles] = useState<string[] | null>(isLive() ? null : []);
+  useEffect(() => {
+    if (!isLive()) return undefined;
+    let gone = false;
+    api.me()
+      .then((me) => {
+        if (!gone) setRoles(me.staffRoles ?? []);
+      })
+      .catch(() => {
+        if (!gone) setRoles([]);
+      });
+    return () => {
+      gone = true;
+    };
+  }, []);
+  return roles;
+}
+
+function QueuePhoto({ mediaKey, label }: { mediaKey: string; label: string }) {
+  const [src, setSrc] = useState("");
+  useEffect(() => {
+    let url = "";
+    let gone = false;
+    api.mediaBlob(mediaKey)
+      .then((blob) => {
+        url = URL.createObjectURL(blob);
+        if (!gone) setSrc(url);
+      })
+      .catch(() => {
+        if (!gone) setSrc("");
+      });
+    return () => {
+      gone = true;
+      if (url) URL.revokeObjectURL(url);
+    };
+  }, [mediaKey]);
+  return src ? <img src={src} alt={label} className="h-40 w-32 rounded-2xl object-cover" /> : <div className="grid h-40 w-32 place-items-center rounded-2xl border border-line text-xs text-mute">{label}</div>;
+}
+
+function VerifyQueue() {
+  const [queue, setQueue] = useState<{ id: string; displayName: string; selfies: string[]; photos: string[] }[]>([]);
+  const [reason, setReason] = useState<Record<string, string>>({});
+  const [error, setError] = useState("");
+  async function load() {
+    const next = await api.verifyQueue();
+    setQueue(next.queue);
+  }
+  useEffect(() => {
+    void load().catch((err: unknown) => setError(err instanceof ApiError ? err.message : "Could not load the queue"));
+  }, []);
+  return (
+    <div className="space-y-4">
+      <h2 className="font-serif text-3xl">Verify</h2>
+      {error ? <p className="text-sm text-coral">{error}</p> : null}
+      {queue.length === 0 ? <p className="text-sm text-mute">No selfies waiting.</p> : null}
+      {queue.map((person) => (
+        <article key={person.id} className="rounded-3xl border border-line p-4">
+          <p className="font-semibold">{person.displayName || "New member"}</p>
+          <div className="mt-3 flex flex-wrap gap-3">
+            {person.selfies.map((key) => <QueuePhoto key={key} mediaKey={key} label="Selfie" />)}
+            {person.photos.map((key) => <QueuePhoto key={key} mediaKey={key} label="Profile" />)}
+          </div>
+          <div className="mt-4 flex flex-wrap gap-2">
+            <button type="button" className="rounded-2xl bg-gold px-3 py-2 text-sm font-semibold text-ink" onClick={() => void api.verifyMember(person.id).then(load).catch((err: unknown) => setError(err instanceof Error ? err.message : "Could not verify"))}>Verify</button>
+          </div>
+          <label className="mt-3 block text-sm text-mute">
+            Reject reason
+            <input className="mt-1 h-11 w-full rounded-2xl border border-line bg-ink px-3" value={reason[person.id] ?? ""} onChange={(event) => setReason((current) => ({ ...current, [person.id]: event.target.value }))} />
+          </label>
+          <button
+            type="button"
+            className="mt-2 rounded-2xl border border-coral px-3 py-2 text-sm text-coral disabled:opacity-40"
+            disabled={!(reason[person.id] ?? "").trim()}
+            onClick={() => void api.rejectMember(person.id, reason[person.id] ?? "").then(load).catch((err: unknown) => setError(err instanceof Error ? err.message : "Could not reject"))}
+          >
+            Reject
+          </button>
+        </article>
+      ))}
+    </div>
+  );
+}
+
+function LiveReports() {
+  const [reports, setReports] = useState<{ id: string; againstId: string | null; category: string; detail: string; status: string; createdAt: string }[]>([]);
+  const [error, setError] = useState("");
+  async function load() {
+    setReports((await api.adminReports()).reports);
+  }
+  useEffect(() => {
+    void load().catch((err: unknown) => setError(err instanceof Error ? err.message : "Could not load reports"));
+  }, []);
+  async function act(id: string, action: "confirm" | "dismiss") {
+    setError("");
+    try {
+      await api.confirmReport(id, action);
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not update the report");
+    }
+  }
+  return (
+    <div className="space-y-3">
+      <h2 className="font-serif text-3xl">Reports</h2>
+      {error ? <p className="text-sm text-coral">{error}</p> : null}
+      {reports.length === 0 ? <p className="text-sm text-mute">No open reports.</p> : null}
+      {reports.map((report) => (
+        <article key={report.id} className="rounded-3xl border border-line p-4">
+          <p className="text-xs text-mute">{new Date(report.createdAt).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })}</p>
+          <h3 className="font-semibold">{report.category}</h3>
+          <p className="mt-2 text-sm">{report.detail}</p>
+          <div className="mt-3 flex gap-2">
+            <button type="button" className="rounded-2xl bg-gold px-3 py-2 text-sm font-semibold text-ink" onClick={() => void act(report.id, "confirm")}>Confirm</button>
+            <button type="button" className="rounded-2xl border border-line px-3 py-2 text-sm" onClick={() => void act(report.id, "dismiss")}>Dismiss</button>
+          </div>
+        </article>
+      ))}
+    </div>
+  );
+}
+
 export function AdminApp() {
+  const roles = useStaffRoles();
   const { state, current, commit } = useStore();
+  if (isLive()) {
+    if (roles === null) return <p className="p-6 text-sm text-mute">Loading…</p>;
+    if (roles.length === 0) return <NotAllowed />;
+    return (
+      <div className="min-h-dvh bg-ink text-cream">
+        <header className="border-b border-line px-6 py-4">
+          <p className="text-xs uppercase tracking-[0.18em] text-mute">Closer staff</p>
+          <h1 className="font-serif text-3xl">Desk</h1>
+        </header>
+        <div className="grid min-h-[calc(100dvh-88px)] md:grid-cols-[220px_1fr]">
+          <nav className="flex gap-2 overflow-auto border-b border-line p-4 md:flex-col md:border-b-0 md:border-r">
+            {roles.includes("ops") ? <NavLink to="/admin/verify" className={({ isActive }) => `rounded-2xl px-3 py-2 text-sm ${isActive ? "bg-card text-gold" : "text-mute"}`}>Verify</NavLink> : null}
+            {roles.includes("safety") ? <NavLink to="/admin" end className={({ isActive }) => `rounded-2xl px-3 py-2 text-sm ${isActive ? "bg-card text-gold" : "text-mute"}`}>Reports</NavLink> : null}
+          </nav>
+          <div className="p-6">
+            <Outlet />
+          </div>
+        </div>
+      </div>
+    );
+  }
   return (
     <div className="min-h-dvh bg-ink text-cream">
       <header className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-6 py-4">
@@ -53,9 +208,23 @@ export function AdminApp() {
   );
 }
 
+export function VerifyDesk() {
+  const roles = useStaffRoles();
+  if (!isLive()) return <p className="text-sm text-mute">Verification runs on the live desk.</p>;
+  if (roles === null) return <p className="text-sm text-mute">Loading…</p>;
+  if (!roles.includes("ops")) return <NotAllowed />;
+  return <VerifyQueue />;
+}
+
 export function Reports() {
+  const roles = useStaffRoles();
   const { state, current, commit } = useStore();
   const [params] = useSearchParams();
+  if (isLive()) {
+    if (roles === null) return <p className="text-sm text-mute">Loading…</p>;
+    if (!roles.includes("safety")) return <NotAllowed />;
+    return <LiveReports />;
+  }
   const focus = params.get("focus");
   const open = state.reports.filter((report) => report.status === "open");
   const selected = state.reports.find((report) => report.id === focus) ?? open[0] ?? state.reports[0];

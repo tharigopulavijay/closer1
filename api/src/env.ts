@@ -7,6 +7,8 @@ export interface Env {
   DEV_OTP?: string;
   SERVICE_TOKEN?: string;
   MSG91_KEY?: string;
+  /** MSG91 OTP template. A secret in production; never commit a real value. */
+  MSG91_TEMPLATE_ID?: string;
   RAZORPAY_WEBHOOK_SECRET?: string;
   /** Razorpay key id. A secret in production; never commit a real value. */
   RAZORPAY_KEY_ID?: string;

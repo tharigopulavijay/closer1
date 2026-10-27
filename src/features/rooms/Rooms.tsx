@@ -2,7 +2,8 @@ import { Coffee, Gift, Hand, Mic, Plus, Timer, Volume2, VolumeX } from "lucide-r
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { PEOPLE } from "../../mocks/people";
-import { env } from "../../lib/env";
+import { api } from "../../lib/api";
+import { env, isLive } from "../../lib/env";
 import { createRoom, spendCoins } from "../../state/logic";
 import { likePerson, recordStreak } from "../../state/live";
 import { useStore } from "../../state/store";
@@ -76,8 +77,14 @@ export function CreateRoom() {
         <Button
           disabled={title.trim().length < 3}
           onClick={() => {
+            const name = title.trim();
+            const about = topic.trim() || "Open conversation";
+            if (isLive()) {
+              void api.createRoom(name, about).then((created) => navigate(`/rooms/${created.id}`));
+              return;
+            }
             const id = `room_${Date.now()}`;
-            commit(createRoom(current(), { id, title: title.trim(), topic: topic.trim() || "Open conversation", host: "You", scheduled: null }));
+            commit(createRoom(current(), { id, title: name, topic: about, host: "You", scheduled: null }));
             navigate(`/rooms/${id}`);
           }}
         >
@@ -100,33 +107,58 @@ export function LiveRoom() {
   const [tokenNote, setTokenNote] = useState("");
   useEffect(() => {
     let cancelled = false;
+    let connected: { disconnect: () => void } | null = null;
     async function connect() {
-      if (!env.livekitUrl) {
-        setTokenNote("Voice connects when a LiveKit URL is set. This room is the preview.");
+      if (!isLive()) {
+        if (!env.livekitUrl) {
+          setTokenNote("Voice connects when a LiveKit URL is set. This room is the preview.");
+          return;
+        }
+        const { Room } = await import("livekit-client");
+        if (cancelled) return;
+        setTokenNote(`Ready for ${Room.name ? "LiveKit" : "voice"}. Token comes from the edge function.`);
         return;
       }
-      const { Room } = await import("livekit-client");
-      if (cancelled) return;
-      setTokenNote(`Ready for ${Room.name ? "LiveKit" : "voice"}. Token comes from the edge function.`);
+      try {
+        const issued = await api.roomToken(id);
+        if (cancelled) return;
+        if (!env.livekitUrl) {
+          setTokenNote("Voice token is ready. A LiveKit URL connects the audio.");
+          return;
+        }
+        const { Room } = await import("livekit-client");
+        const voice = new Room();
+        await voice.connect(env.livekitUrl, issued.token);
+        connected = voice;
+        if (cancelled) voice.disconnect();
+        else setTokenNote("Connected.");
+      } catch (error) {
+        if (!cancelled) setTokenNote(error instanceof Error ? error.message : "Could not join this room");
+      }
     }
     void connect();
     return () => {
       cancelled = true;
+      connected?.disconnect();
     };
-  }, []);
-  if (!room || state.endedRooms.includes(room.id)) {
+  }, [id]);
+  if ((!room || state.endedRooms.includes(room.id)) && !isLive()) {
     return <Screen title="Room" back="/rooms"><p>This room has ended.</p></Screen>;
   }
-  const speakers = ["Imran", "Laya", "Meher"].filter((name) => name !== room.host).slice(0, 2);
+  const shown = room ?? { id, title: "Room", topic: "", host: "Host", ai: false, speakers: 1, listeners: 0, live: true, scheduled: null };
+  if (room && state.endedRooms.includes(room.id)) {
+    return <Screen title="Room" back="/rooms"><p>This room has ended.</p></Screen>;
+  }
+  const speakers = ["Imran", "Laya", "Meher"].filter((name) => name !== shown.host).slice(0, 2);
   const seats = [
-    { name: room.host, role: "Host", photo: samplePhoto(state.preview, room.host.toLowerCase()) },
+    { name: shown.host, role: "Host", photo: samplePhoto(state.preview, shown.host.toLowerCase()) },
     ...speakers.map((name) => ({ name, role: "Speaker", photo: samplePhoto(state.preview, name.toLowerCase()) })),
     { name: "You", role: hand ? "Hand raised" : "Listener", photo: state.preview ? SELF_PHOTOS[0] : undefined },
   ];
   return (
-    <Screen title={room.title} back="/rooms" tab>
-      {room.ai ? <p className="mb-3 inline-flex rounded-full bg-mint/15 px-3 py-1 text-xs font-semibold text-mint">AI moderation on in this room</p> : null}
-      <p className="text-sm text-mute">{room.topic}</p>
+    <Screen title={shown.title} back="/rooms" tab>
+      {shown.ai ? <p className="mb-3 inline-flex rounded-full bg-mint/15 px-3 py-1 text-xs font-semibold text-mint">AI moderation on in this room</p> : null}
+      <p className="text-sm text-mute">{shown.topic}</p>
       <p className="mt-2 text-xs text-mute">{tokenNote}</p>
       <div className="mt-4 grid grid-cols-2 gap-3">
         {seats.map((seat) => (
@@ -175,9 +207,31 @@ export function ChaiBreak() {
   const [topic, setTopic] = useState(0);
   const [mine, setMine] = useState(false);
   const [theirs] = useState(() => Math.random() > 0.45);
+  const [guestName, setGuestName] = useState("");
+  const [chaiRoom, setChaiRoom] = useState("");
+  const [revealedNames, setRevealedNames] = useState<string[]>([]);
+  const [chaiError, setChaiError] = useState("");
   const partner = PEOPLE.find((person) => person.verified && person.intent !== "friends") ?? PEOPLE[0];
   useEffect(() => {
-    if (phase !== "queue") return undefined;
+    if (!isLive()) return undefined;
+    let gone = false;
+    api.joinChai()
+      .then(async (joined) => {
+        if (gone) return;
+        setGuestName(joined.guestName);
+        setChaiRoom(joined.id);
+        await api.roomToken(joined.id);
+        if (!gone) setPhase("live");
+      })
+      .catch((error: unknown) => {
+        if (!gone) setChaiError(error instanceof Error ? error.message : "Could not join Chai Break");
+      });
+    return () => {
+      gone = true;
+    };
+  }, []);
+  useEffect(() => {
+    if (isLive() || phase !== "queue") return undefined;
     const timer = window.setTimeout(() => setPhase("live"), 1600);
     return () => window.clearTimeout(timer);
   }, [phase]);
@@ -220,19 +274,31 @@ export function ChaiBreak() {
               className="h-16 w-16 rounded-full"
               compact
             />
-            <p className="text-sm text-mute">{revealed ? partner.name : "Initials only, until you both reveal"}</p>
+            <p className="text-sm text-mute">{isLive() ? (revealedNames.length ? revealedNames.join(" and ") : guestName || "Guest") : revealed ? partner.name : "Initials only, until you both reveal"}</p>
           </div>
           <Card>
             <p className="text-xs text-mute">Topic</p>
             <p className="mt-1 text-lg">{TOPICS[topic % TOPICS.length]}</p>
             <button type="button" className="mt-3 inline-flex min-h-11 items-center text-sm font-semibold text-gold" onClick={() => setTopic((value) => value + 1)}>Another card</button>
           </Card>
-          <Button onClick={() => setMine(true)}>{mine ? "You revealed" : "Reveal"}</Button>
+          <Button onClick={() => {
+            if (!isLive()) {
+              setMine(true);
+              return;
+            }
+            void api.revealChai(chaiRoom).then((result) => {
+              setMine(true);
+              if (result.revealed && result.people) setRevealedNames(result.people.map((person) => person.name));
+            }).catch((error: unknown) => setChaiError(error instanceof Error ? error.message : "Could not reveal"));
+          }}>{mine ? "You revealed" : "Reveal"}</Button>
+          {chaiError ? <p className="text-sm text-coral">{chaiError}</p> : null}
         </div>
       ) : null}
       {phase === "end" || (mine && phase === "live") ? (
         <Card className="mt-4">
-          {mine && theirs ? (
+          {isLive() && revealedNames.length ? (
+            <p className="font-semibold">You both revealed. This is {revealedNames.join(" and ")}.</p>
+          ) : mine && theirs ? (
             <>
               <Portrait
                 name={partner.name}

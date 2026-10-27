@@ -5,7 +5,9 @@ import { venueById } from "../../mocks/catalog";
 import { isLive } from "../../lib/env";
 import type { ChatMessage } from "../../lib/types";
 import { closeKindly, sendMessage } from "../../state/logic";
-import { clearAway, keepChat, loadMessages, myId, openPlanChat, payDeposit, personOf, setAway, submitDebrief } from "../../state/live";
+import { clearAway, keepChat, loadMessages, myId, openPlanChat, payDeposit, personOf, refresh, setAway, submitDebrief } from "../../state/live";
+import { api } from "../../lib/api";
+import { openRazorpayCheckout, watchDeposit } from "./deposit";
 import { chatIsOpen, closesAt, DEPOSIT_INR } from "./api";
 import { useStore } from "../../state/store";
 import { Button, Card, Chip, Headline, Sheet } from "../../ui/primitives";
@@ -98,6 +100,30 @@ export function PlanDetail() {
   const plan = state.plans.find((item) => item.id === id);
   const person = plan ? personOf(plan.personId) : undefined;
   const venue = plan ? venueById(plan.venueId) : undefined;
+  const [paying, setPaying] = useState(false);
+  const [payError, setPayError] = useState("");
+  async function payLive() {
+    if (!plan) return;
+    setPaying(true);
+    setPayError("");
+    try {
+      const order = await api.depositOrder(plan.id);
+      await openRazorpayCheckout(order);
+      const userId = myId() || (await api.me()).id;
+      const outcome = await watchDeposit(
+        plan.id,
+        userId,
+        async () => (await api.plans()).plans,
+        (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+      );
+      commit(await refresh(current()));
+      if (outcome !== "paid") setPayError("The payment did not confirm. Your deposit is still unpaid.");
+    } catch (error) {
+      setPayError(error instanceof Error ? error.message : "The payment could not start.");
+    } finally {
+      setPaying(false);
+    }
+  }
   if (!plan || !venue || (!person && !isLive())) return <Screen title="Plan" back="/plans"><p>This plan has gone.</p></Screen>;
   const name = person?.name.split(" ")[0] ?? "Someone";
   const close = closesAt(plan);
@@ -126,10 +152,21 @@ export function PlanDetail() {
           <Button onClick={() => navigate(`/plans/${plan.id}/debrief`)}>Debrief</Button>
         </div>
       ) : plan.deposit !== "paid" ? (
-        <div className="mt-4">
-          <Button onClick={() => void payDeposit(current(), plan.id).then((next) => commit(next))}>
-            {isLive() ? `Deposit ${plan.deposit}` : "Pay with UPI (preview)"}
+        <div className="mt-4 space-y-3">
+          <Button
+            disabled={paying}
+            onClick={() => {
+              if (!isLive()) {
+                void payDeposit(current(), plan.id).then((next) => commit(next));
+                return;
+              }
+              void payLive();
+            }}
+          >
+            {isLive() ? "Pay ₹99 deposit" : "Pay with UPI (preview)"}
           </Button>
+          {paying ? <p className="text-sm text-mute">Waiting for the payment to confirm</p> : null}
+          {payError ? <p className="text-sm text-coral">{payError}</p> : null}
         </div>
       ) : (
         <div className="mt-4 space-y-3">
