@@ -92,11 +92,12 @@ describe("c2", () => {
     expect(moderate("hello").ok).toBe(true);
   });
 
-  it("builds tomorrow's drop at 21:00 IST", async () => {
+  it("builds tomorrow's drop at 20:55 IST, just before the 21:00 reminder", async () => {
+    expect(wrangler).toContain('"25 15 * * *"');
     expect(wrangler).toContain('"30 15 * * *"');
-    const when = new Date("2026-10-27T15:30:00.000Z");
+    const when = new Date("2026-10-27T15:25:00.000Z");
     const ctx = createExecutionContext();
-    await worker.scheduled({ cron: "30 15 * * *", scheduledTime: when.getTime(), type: "scheduled" } as unknown as ScheduledController, env, ctx);
+    await worker.scheduled({ cron: "25 15 * * *", scheduledTime: when.getTime(), type: "scheduled" } as unknown as ScheduledController, env, ctx);
     await waitOnExecutionContext(ctx);
     const tomorrow = "2026-10-28";
     const picks = await env.DB.prepare(

@@ -2,6 +2,7 @@ import { env, SELF } from "cloudflare:test";
 import schema from "../migrations/0001_schema.sql?raw";
 import c4 from "../migrations/0002_c4.sql?raw";
 import c5 from "../migrations/0003_c5.sql?raw";
+import c6 from "../migrations/0004_c6.sql?raw";
 import { sha256 } from "../src/crypto";
 
 export const A = "11111111-1111-4111-8111-111111111111";
@@ -71,8 +72,10 @@ export async function reset() {
   await exec(schema);
   await applyMigration(c4, "deposits", "order_id");
   await applyMigration(c5, "profiles", "retake_note");
+  await applyMigration(c6, "push_subscriptions", "endpoint");
   await exec(`
     PRAGMA foreign_keys = OFF;
+    DELETE FROM push_subscriptions;
     DELETE FROM room_members;
     DELETE FROM rooms;
     DELETE FROM media_objects;

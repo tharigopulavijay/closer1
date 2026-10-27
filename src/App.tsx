@@ -8,6 +8,7 @@ import { ChaiBreak, CreateRoom, LiveRoom, RoomsHome } from "./features/rooms/Roo
 import { CheckInPrompt, DateDay, ReportFlow, SafetyHome, SafetySetup, StrikeNotice } from "./features/safety/Safety";
 import { GiftClaim, Licences, Plus, PreferencesEdit, Saathi, Settings, Welcome, YouHome } from "./features/you/You";
 import { Login, Waiting } from "./features/auth/Login";
+import { Contact, Privacy, Refunds, SafetyPolicy, Terms } from "./features/legal/Legal";
 import { sessionToken } from "./lib/api";
 import { isLive } from "./lib/env";
 import { accountVerified } from "./state/live";
@@ -57,6 +58,11 @@ export function App() {
       </Route>
       <Route element={<PhoneLayout />}>
         <Route path="/" element={<Home />} />
+        <Route path="/privacy" element={<Privacy />} />
+        <Route path="/terms" element={<Terms />} />
+        <Route path="/refunds" element={<Refunds />} />
+        <Route path="/contact" element={<Contact />} />
+        <Route path="/safety-policy" element={<SafetyPolicy />} />
         <Route path="/login" element={<Login />} />
         <Route path="/waiting" element={<Waiting />} />
         <Route path="/onboarding/:step" element={<Onboarding />} />

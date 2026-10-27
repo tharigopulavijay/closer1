@@ -1,6 +1,6 @@
 import { env, SELF } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
-import { istDate } from "../src/time";
+import { dropDate } from "../src/time";
 import { A, B, O1, S, U, V, api, count, login, reset, sendForm, tinyPng } from "./harness";
 
 const token: Record<string, string> = {};
@@ -134,7 +134,7 @@ describe("live routes", () => {
   it("returns today's drop with a public profile and photo keys", async () => {
     const key = await upload(B, "photo");
     await api("/me/photos", { token: token[B], body: { key, main: true } });
-    const date = istDate();
+    const date = dropDate();
     await env.DB.prepare(`insert into drops (id, user_id, drop_date) values ('drop-a', ?, ?)`).bind(A, date).run();
     await env.DB.prepare(`insert into drop_picks (drop_id, person_id, position) values ('drop-a', ?, 1)`).bind(B).run();
     const drop = await api("/drop/today", { token: token[A] });
@@ -147,7 +147,7 @@ describe("live routes", () => {
 
   it("keeps selfies owner-only and lets ops verify", async () => {
     const key = await upload(A, "selfie");
-    const date = istDate();
+    const date = dropDate();
     await env.DB.prepare(`insert into drops (id, user_id, drop_date) values ('drop-b', ?, ?)`).bind(B, date).run();
     await env.DB.prepare(`insert into drop_picks (drop_id, person_id, position) values ('drop-b', ?, 1)`).bind(A).run();
     expect((await api(`/profiles/${A}`, { token: token[B] })).status).toBe(200);

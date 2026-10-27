@@ -8,9 +8,11 @@
   },
   // Secrets stay in the environment (wrangler secret). Never put values here:
   // DEV_OTP, SERVICE_TOKEN, MSG91_KEY, MSG91_TEMPLATE_ID, RAZORPAY_WEBHOOK_SECRET,
-  // RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET, LIVEKIT_API_KEY, LIVEKIT_API_SECRET.
+  // RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET, LIVEKIT_API_KEY, LIVEKIT_API_SECRET,
+  // VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY.
   "triggers": {
-    "crons": ["30 15 * * *"]
+    // 20:55 IST builds the next Drop, 21:00 IST sends the reminder.
+    "crons": ["25 15 * * *", "30 15 * * *"]
   },
   "d1_databases": [
     {

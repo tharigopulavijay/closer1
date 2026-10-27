@@ -7,6 +7,14 @@ export function istDate(now = new Date()) {
   }).format(now);
 }
 
+/**
+ * The Drop on screen. The 21:00 IST job builds the picks dated for the next day, so from
+ * 21:00 onwards that next day's Drop is the one to show: the date is IST shifted three hours on.
+ */
+export function dropDate(now = new Date()) {
+  return istDate(new Date(now.getTime() + 3 * 60 * 60 * 1000));
+}
+
 export function istMonth(now = new Date()) {
   return istDate(now).slice(0, 7);
 }
