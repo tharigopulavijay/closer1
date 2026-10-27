@@ -8,6 +8,7 @@ export default defineWorkersConfig({
         wrangler: { configPath: "./wrangler.jsonc" },
         miniflare: {
           bindings: {
+            ENVIRONMENT: "test",
             DEV_OTP: "482913",
             SERVICE_TOKEN: "service-test",
             RAZORPAY_WEBHOOK_SECRET: "razorpay-test-secret",

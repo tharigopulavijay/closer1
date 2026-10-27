@@ -172,8 +172,8 @@ app.patch("/trusted-contacts/:id", async (c) => {
 });
 
 app.post("/trusted-contacts", async (c) => {
-  const body = await c.req.json<{ name?: string; phoneHash?: string; confirmed?: boolean }>();
-  const created = await addTrusted(c.env.DB, c.get("userId"), body.name ?? "", body.phoneHash ?? "", Boolean(body.confirmed));
+  const body = await c.req.json<{ name?: string; phone?: string; confirmed?: boolean }>();
+  const created = await addTrusted(c.env.DB, c.get("userId"), body.name ?? "", body.phone ?? "", Boolean(body.confirmed));
   return c.json(created);
 });
 

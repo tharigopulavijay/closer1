@@ -3,6 +3,9 @@
   "main": "src/index.ts",
   "compatibility_date": "2026-03-10",
   "workers_dev": true,
+  "vars": {
+    "ENVIRONMENT": "production"
+  },
   // Secrets stay in the environment (wrangler secret). Never put values here:
   // DEV_OTP, SERVICE_TOKEN, MSG91_KEY, RAZORPAY_WEBHOOK_SECRET, LIVEKIT_API_KEY, LIVEKIT_API_SECRET.
   "triggers": {

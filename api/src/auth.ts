@@ -7,7 +7,13 @@ const OTP_LIMIT = 3;
 const OTP_ATTEMPTS = 5;
 const SESSION_MS = 30 * 24 * 60 * 60 * 1000;
 
-export async function requestOtp(env: Pick<Env, "DB" | "DEV_OTP">, phone: string, now = new Date()) {
+/** A fixed login code would open every account, so it only works outside production. */
+function devCode(env: Pick<Env, "DEV_OTP" | "ENVIRONMENT">) {
+  if (env.ENVIRONMENT !== "development" && env.ENVIRONMENT !== "test") return "";
+  return env.DEV_OTP?.trim() ?? "";
+}
+
+export async function requestOtp(env: Pick<Env, "DB" | "DEV_OTP" | "ENVIRONMENT">, phone: string, now = new Date()) {
   const digits = phoneDigits(phone);
   if (digits.length < 10) fail("bad phone", 400);
   const phoneHash = await sha256(digits);
@@ -19,7 +25,7 @@ export async function requestOtp(env: Pick<Env, "DB" | "DEV_OTP">, phone: string
     .first<{ n: number }>();
   if (Number(recent?.n ?? 0) >= OTP_LIMIT) fail("rate limit", 429);
 
-  const dev = env.DEV_OTP?.trim() ?? "";
+  const dev = devCode(env);
   const code = dev || randomCode();
   const expires = new Date(now.getTime() + OTP_WINDOW_MS).toISOString();
   await env.DB.prepare(
@@ -32,7 +38,7 @@ export async function requestOtp(env: Pick<Env, "DB" | "DEV_OTP">, phone: string
   return { sent: !dev };
 }
 
-export async function verifyOtp(env: Pick<Env, "DB" | "DEV_OTP">, phone: string, code: string, now = new Date()) {
+export async function verifyOtp(env: Pick<Env, "DB" | "DEV_OTP" | "ENVIRONMENT">, phone: string, code: string, now = new Date()) {
   const digits = phoneDigits(phone);
   if (digits.length < 10 || !code.trim()) fail("bad phone", 400);
   const phoneHash = await sha256(digits);
@@ -88,7 +94,14 @@ async function ensureUser(db: D1Database, phoneHash: string, now: Date) {
     .prepare(`select id from users where phone_hash = ?`)
     .bind(phoneHash)
     .first<{ id: string }>();
-  if (existing) return existing.id;
+  if (existing) {
+    // A deleted account that signs in again starts a fresh profile; a banned one stays banned.
+    await db
+      .prepare(`update profiles set deleted_at = null, verified = 0, phone_hash = ? where id = ? and deleted_at is not null`)
+      .bind(phoneHash, existing.id)
+      .run();
+    return existing.id;
+  }
   const id = crypto.randomUUID();
   const at = now.toISOString();
   await db.batch([

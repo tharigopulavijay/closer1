@@ -1,4 +1,4 @@
-import { env } from "cloudflare:test";
+import { env, SELF } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
 import { deliverMessage, insertAiReport } from "../src/policy";
 import { A, B, C, O1, O2, O3, S, T, U, V, api, count, login, reset, sendForm, tinyPng } from "./harness";
@@ -27,7 +27,19 @@ async function match(left: string, right: string) {
 
 describe("database rules over HTTP", () => {
   it("fix 1 and 11: A reads B only when B is visible", async () => {
-    expect((await api(`/profiles/${B}`, { token: token[A] })).status).toBe(200);
+    // A stranger with no Drop, like or match cannot read or list B.
+    expect((await api(`/profiles/${B}`, { token: token[A] })).status).toBe(404);
+    expect((await api("/profiles", { token: token[A] })).json).toEqual({ ids: [] });
+    const dropId = crypto.randomUUID();
+    await env.DB.prepare(`insert into drops (id, user_id, drop_date) values (?, ?, '2026-10-27')`).bind(dropId, A).run();
+    await env.DB.prepare(`insert into drop_picks (drop_id, person_id, position) values (?, ?, 1)`).bind(dropId, B).run();
+    expect((await api(`/profiles/${B}`, { token: token[T] })).status).toBe(404);
+
+    const seen = await api(`/profiles/${B}`, { token: token[A] });
+    expect(seen.status).toBe(200);
+    expect(seen.json).not.toHaveProperty("dob");
+    expect((seen.json as { age: number }).age).toBeGreaterThanOrEqual(18);
+    expect((await api("/profiles", { token: token[A] })).json).toEqual({ ids: [B] });
     expect((await api("/profiles", { token: token[A] })).status).toBe(200);
 
     await env.DB.prepare(`update profiles set verified = 0 where id = ?`).bind(B).run();
@@ -231,18 +243,19 @@ describe("database rules over HTTP", () => {
     await env.DB.prepare(`insert into strikes (id, report_id, user_id, category, created_at) values (?, ?, ?, 'Rude', ?)`).bind(crypto.randomUUID(), reportId, A, new Date().toISOString()).run();
     await env.DB.prepare(`insert into sos_events (id, user_id, created_at) values (?, ?, ?)`).bind(crypto.randomUUID(), A, new Date().toISOString()).run();
     expect((await api("/account", { method: "DELETE", token: token[A] })).status).toBe(200);
-    expect(await count(`select count(*) as n from profiles where id = ?`, A)).toBe(0);
+    expect(await count(`select count(*) as n from profiles where id = ? and deleted_at is not null and dob is null and display_name = ''`, A)).toBe(1);
+    expect(await count(`select count(*) as n from sessions where user_id = ?`, A)).toBe(0);
     expect(await count(`select count(*) as n from reports where against_id = ?`, A)).toBe(1);
     expect(await count(`select count(*) as n from strikes where user_id = ?`, A)).toBe(1);
     expect(await count(`select count(*) as n from sos_events where user_id = ?`, A)).toBe(1);
   });
 
   it("fix 16: confirmed contacts, debriefs and report status cannot be self-set", async () => {
-    expect((await api("/trusted-contacts", { token: token[A], body: { name: "Amma", phoneHash: "h", confirmed: true } })).text).toMatch(/confirm via link/);
-    const contact = await api("/trusted-contacts", { token: token[A], body: { name: "Amma", phoneHash: "h", confirmed: false } });
+    expect((await api("/trusted-contacts", { token: token[A], body: { name: "Amma", phone: "9876543210", confirmed: true } })).text).toMatch(/confirm via link/);
+    const contact = await api("/trusted-contacts", { token: token[A], body: { name: "Amma", phone: "9876543210", confirmed: false } });
     const contactId = (contact.json as { id: string }).id;
     expect((await api(`/trusted-contacts/${contactId}`, { method: "PATCH", token: token[A], body: { confirmed: true } })).text).toMatch(/confirm via link/);
-    await api("/trusted-contacts", { token: token[A], body: { name: "Didi", phoneHash: "h2", confirmToken: "mine" } });
+    await api("/trusted-contacts", { token: token[A], body: { name: "Didi", phone: "9876543211", confirmToken: "mine" } });
     expect(await count(`select count(*) as n from trusted_contacts where confirm_token = 'mine'`)).toBe(0);
 
     expect((await api(`/service/trusted-contacts/${contactId}/token`, { method: "POST", service: true, body: { token: "sms-token" } })).status).toBe(200);
@@ -273,7 +286,15 @@ describe("database rules over HTTP", () => {
     expect(uploaded.status).toBe(200);
     const key = (uploaded.json as { key: string }).key;
     expect((await api(`/media/${key}`, { token: token[A] })).status).toBe(200);
-    expect((await api(`/media/${key}`, { token: token[B] })).status).toBe(200);
+    expect((await api(`/media/${key}`, { token: token[B] })).status).toBe(404);
+    const dropId = crypto.randomUUID();
+    await env.DB.prepare(`insert into drops (id, user_id, drop_date) values (?, ?, '2026-10-27')`).bind(dropId, B).run();
+    await env.DB.prepare(`insert into drop_picks (drop_id, person_id, position) values (?, ?, 1)`).bind(dropId, A).run();
+    const shown = await api(`/media/${key}`, { token: token[B] });
+    expect(shown.status).toBe(200);
+    const raw = await SELF.fetch(`http://closer.test/media/${key}`, { headers: { authorization: `Bearer ${token[B]}` } });
+    await raw.arrayBuffer();
+    expect(raw.headers.get("x-content-type-options")).toBe("nosniff");
     expect((await api(`/media/${key}`, { token: token[U] })).status).toBe(404);
   });
 });

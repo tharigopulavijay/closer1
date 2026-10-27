@@ -2,6 +2,8 @@ export interface Env {
   DB: D1Database;
   MEDIA: R2Bucket;
   PLAN_CHAT: DurableObjectNamespace;
+  /** "development" or "test" allow DEV_OTP; anything else (production) ignores it. */
+  ENVIRONMENT?: string;
   DEV_OTP?: string;
   SERVICE_TOKEN?: string;
   MSG91_KEY?: string;

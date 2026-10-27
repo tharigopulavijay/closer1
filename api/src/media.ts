@@ -1,5 +1,5 @@
 import { fail } from "./env";
-import { canSee } from "./policy";
+import { canView } from "./policy";
 
 const PHOTO_BYTES = 5 * 1024 * 1024;
 const VOICE_BYTES = 2 * 1024 * 1024;
@@ -37,11 +37,13 @@ export async function readMedia(db: D1Database, bucket: R2Bucket, viewerId: stri
     .prepare(`select owner_id from media_objects where id = ?`)
     .bind(key)
     .first<{ owner_id: string }>();
-  if (!row || !(await canSee(db, viewerId, row.owner_id))) fail("not visible", 404);
+  if (!row || !(await canView(db, viewerId, row.owner_id))) fail("not visible", 404);
   const object = await bucket.get(key);
   if (!object) fail("not visible", 404);
   const headers = new Headers();
   if (object.httpMetadata?.contentType) headers.set("content-type", object.httpMetadata.contentType);
   headers.set("cache-control", "private, max-age=0");
+  // The stored type comes from the uploader; never let a browser guess another one.
+  headers.set("x-content-type-options", "nosniff");
   return new Response(object.body, { headers });
 }

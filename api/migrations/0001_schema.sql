@@ -188,6 +188,8 @@ CREATE TABLE IF NOT EXISTS trusted_contacts (
   id TEXT PRIMARY KEY,
   user_id TEXT NOT NULL REFERENCES profiles (id) ON DELETE CASCADE,
   name TEXT NOT NULL,
+  -- The contact's own number, kept so SOS and the confirm link can reach them.
+  phone TEXT NOT NULL DEFAULT '',
   phone_hash TEXT NOT NULL,
   confirmed INTEGER NOT NULL DEFAULT 0,
   confirm_token TEXT UNIQUE

@@ -6,7 +6,9 @@ const LINK = /https?:\/\/|www\./i;
 
 const defaultRules: ModerationRule[] = [
   (body) => (BLOCKED_WORDS.test(body) ? "blocked word" : null),
-  (body) => (body.replace(/\D/g, "").length >= 10 ? "phone" : null),
+  // Ten digits in a row, allowing spaces, dots or dashes between them. Counting every
+  // digit in the message blocked ordinary lines like "7:30 on 12/11/2026".
+  (body) => (/(?:\+?\d[\s.\-]{0,2}){10,}/.test(body) ? "phone" : null),
   (body) => (UPI.test(body) ? "upi" : null),
   (body) => (LINK.test(body) ? "link" : null),
 ];

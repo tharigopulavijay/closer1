@@ -63,7 +63,7 @@ describe("c1 fixes", () => {
   });
 
   it("stores only the hash of a trusted-contact token", async () => {
-    const contact = await api("/trusted-contacts", { token: token[A], body: { name: "Amma", phoneHash: "h" } });
+    const contact = await api("/trusted-contacts", { token: token[A], body: { name: "Amma", phone: "9876543210" } });
     const contactId = (contact.json as { id: string }).id;
     expect((await api(`/service/trusted-contacts/${contactId}/token`, { method: "POST", service: true, body: { token: "sms-token" } })).status).toBe(200);
     const row = await env.DB.prepare(`select confirm_token from trusted_contacts where id = ?`)

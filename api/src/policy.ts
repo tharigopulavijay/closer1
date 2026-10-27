@@ -1,6 +1,8 @@
-import { sha256 } from "./crypto";
+import { phoneDigits, sha256 } from "./crypto";
 import { fail } from "./env";
-import { addDays, daysBetween, isAdultDob, istDate, istMonth, slotInstant } from "./time";
+import { addDays, ageYears, daysBetween, isAdultDob, istDate, istMonth, slotInstant } from "./time";
+
+const TRUSTED_LIMIT = 5;
 
 const MILESTONES = [7, 30, 90, 180, 365];
 
@@ -87,24 +89,53 @@ export async function canSee(db: D1Database, viewerId: string, targetId: string)
   return true;
 }
 
+// Everyone the viewer has a reason to see: a Drop either way, a like either way,
+// a match, a plan, or a room/game connection. Without this, any member could
+// page through every profile, which breaks both privacy and the 3-a-day Drop.
+// D1 caps a compound SELECT at 5 terms, so these run as a batch and merge in code.
+const RELATED_IDS = [
+  `select dp.person_id as id from drop_picks dp join drops d on d.id = dp.drop_id where d.user_id = ?1`,
+  `select d.user_id as id from drop_picks dp join drops d on d.id = dp.drop_id where dp.person_id = ?1`,
+  `select to_id as id from likes where from_id = ?1 union select from_id from likes where to_id = ?1`,
+  `select user_b as id from matches where user_a = ?1 union select user_a from matches where user_b = ?1`,
+  `select person_id as id from plans where owner_id = ?1 and person_id is not null
+   union select owner_id from plans where person_id = ?1`,
+  `select person_id as id from social_connections where user_id = ?1
+   union select user_id from social_connections where person_id = ?1`,
+];
+
+async function relatedIds(db: D1Database, viewerId: string) {
+  const results = await db.batch<{ id: string }>(RELATED_IDS.map((sql) => db.prepare(sql).bind(viewerId)));
+  return new Set(results.flatMap((result) => result.results.map((row) => row.id)));
+}
+
+async function related(db: D1Database, viewerId: string, targetId: string) {
+  return (await relatedIds(db, viewerId)).has(targetId);
+}
+
+/** canSee plus a reason to see: what every profile, photo and media read uses. */
+export async function canView(db: D1Database, viewerId: string, targetId: string) {
+  if (viewerId === targetId) return canSee(db, viewerId, targetId);
+  return (await related(db, viewerId, targetId)) && (await canSee(db, viewerId, targetId));
+}
+
 export async function listVisibleIds(db: D1Database, viewerId: string) {
-  const rows = await db.prepare(`select id from profiles`).all<{ id: string }>();
   const ids: string[] = [];
-  for (const row of rows.results) {
-    if (await canSee(db, viewerId, row.id)) ids.push(row.id);
+  for (const id of await relatedIds(db, viewerId)) {
+    if (id !== viewerId && (await canSee(db, viewerId, id))) ids.push(id);
   }
   return ids;
 }
 
 export async function readProfile(db: D1Database, viewerId: string, targetId: string) {
-  if (!(await canSee(db, viewerId, targetId))) fail("not visible", 404);
+  if (!(await canView(db, viewerId, targetId))) fail("not visible", 404);
   const row = await profile(db, targetId);
   if (!row) fail("not visible", 404);
-  return publicProfile(row);
+  return viewerId === targetId ? ownProfile(row) : publicProfile(row);
 }
 
 export async function readPhotos(db: D1Database, viewerId: string, targetId: string) {
-  if (!(await canSee(db, viewerId, targetId))) return [];
+  if (!(await canView(db, viewerId, targetId))) return [];
   const rows = await db
     .prepare(`select id, storage_path, is_main from profile_photos where user_id = ?`)
     .bind(targetId)
@@ -112,7 +143,21 @@ export async function readPhotos(db: D1Database, viewerId: string, targetId: str
   return rows.results;
 }
 
+/** What other members see: age, never the date of birth or privacy settings. */
 function publicProfile(row: Profile) {
+  return {
+    id: row.id,
+    displayName: row.display_name,
+    age: row.dob ? ageYears(row.dob, istDate()) : null,
+    gender: row.gender,
+    intent: row.intent,
+    area: row.area,
+    verified: Boolean(row.verified),
+    closerPlus: Boolean(row.closer_plus),
+  };
+}
+
+function ownProfile(row: Profile) {
   return {
     id: row.id,
     displayName: row.display_name,
@@ -187,7 +232,7 @@ export async function sendLike(db: D1Database, fromId: string, personId: string,
   await likeable(db, fromId, personId);
   const now = new Date().toISOString();
   await db
-    .prepare(`insert into likes (from_id, to_id, note, created_at) values (?, ?, ?, ?)`)
+    .prepare(`insert or ignore into likes (from_id, to_id, note, created_at) values (?, ?, ?, ?)`)
     .bind(fromId, personId, note, now)
     .run();
   const back = await db
@@ -207,6 +252,9 @@ export async function createPlan(db: D1Database, ownerId: string, personId: stri
   await assertActive(db, ownerId);
   if (!personId || personId === ownerId) fail("unavailable");
   if (await banned(db, personId)) fail("unavailable");
+  const person = await profile(db, personId);
+  if (!person || !person.verified || person.deleted_at) fail("unavailable");
+  if (await blockedEither(db, ownerId, personId)) fail("blocked");
   const [userA, userB] = ownerId < personId ? [ownerId, personId] : [personId, ownerId];
   const match = await db
     .prepare(`select 1 as n from matches where user_a = ? and user_b = ?`)
@@ -296,7 +344,7 @@ export async function deliverMessage(db: D1Database, senderId: string, planId: s
   const plan = await db.prepare(`select * from plans where id = ?`).bind(planId).first<Plan>();
   if (!plan) fail("missing plan", 404);
   if (plan.owner_id !== senderId && plan.person_id !== senderId) fail("not in plan");
-  if (!(await chatOpen(db, plan))) fail("chat closed");
+  if (!(await chatOpen(db, plan)) || !(await partnerReachable(db, plan, senderId))) fail("chat closed");
   const id = crypto.randomUUID();
   await db
     .prepare(`insert into messages (id, plan_id, sender_id, body, created_at) values (?, ?, ?, ?, ?)`)
@@ -322,8 +370,18 @@ export async function assertChatAccess(db: D1Database, userId: string, planId: s
   const plan = await db.prepare(`select * from plans where id = ?`).bind(planId).first<Plan>();
   if (!plan) fail("missing plan", 404);
   if (plan.owner_id !== userId && plan.person_id !== userId) fail("not in plan");
-  if (!(await chatOpen(db, plan))) fail("chat closed");
+  if (!(await chatOpen(db, plan)) || !(await partnerReachable(db, plan, userId))) fail("chat closed");
   return plan;
+}
+
+/** A block either way, or a ban, ends the chat at once, even mid-conversation. */
+async function partnerReachable(db: D1Database, plan: Plan, userId: string) {
+  const partner = plan.owner_id === userId ? plan.person_id : plan.owner_id;
+  if (!partner) return false;
+  if (await banned(db, partner)) return false;
+  const other = await profile(db, partner);
+  if (!other || other.deleted_at) return false;
+  return !(await blockedEither(db, userId, partner));
 }
 
 export async function fileReport(
@@ -506,7 +564,8 @@ export async function claimGift(db: D1Database, userId: string, milestone: numbe
 
 export async function blockPerson(db: D1Database, userId: string, personId: string) {
   await assertActive(db, userId);
-  await db.prepare(`insert into blocks (blocker, blocked) values (?, ?)`).bind(userId, personId).run();
+  if (!personId || personId === userId || !(await profile(db, personId))) fail("unavailable", 400);
+  await db.prepare(`insert or ignore into blocks (blocker, blocked) values (?, ?)`).bind(userId, personId).run();
 }
 
 export async function setAway(db: D1Database, userId: string, kind: string, until: string | null) {
@@ -522,15 +581,23 @@ export async function clearAway(db: D1Database, userId: string) {
   await db.prepare(`delete from away_status where user_id = ?`).bind(userId).run();
 }
 
-export async function addTrusted(db: D1Database, userId: string, name: string, phoneHash: string, confirmed = false) {
+export async function addTrusted(db: D1Database, userId: string, name: string, phone: string, confirmed = false) {
   await assertActive(db, userId);
   if (confirmed) fail("confirm via link");
+  const digits = phoneDigits(phone);
+  if (digits.length < 10 || digits.length > 15) fail("bad phone", 400);
+  if (!name.trim()) fail("name required", 400);
+  const existing = await db
+    .prepare(`select count(*) as n from trusted_contacts where user_id = ?`)
+    .bind(userId)
+    .first<{ n: number }>();
+  if (Number(existing?.n ?? 0) >= TRUSTED_LIMIT) fail("contact limit", 400);
   const id = crypto.randomUUID();
   await db
     .prepare(
-      `insert into trusted_contacts (id, user_id, name, phone_hash, confirmed, confirm_token) values (?, ?, ?, ?, 0, null)`,
+      `insert into trusted_contacts (id, user_id, name, phone, phone_hash, confirmed, confirm_token) values (?, ?, ?, ?, ?, 0, null)`,
     )
-    .bind(id, userId, name, phoneHash)
+    .bind(id, userId, name.trim(), digits, await sha256(digits))
     .run();
   return { id, confirmed: false };
 }
@@ -554,13 +621,13 @@ export async function confirmTrustedContact(db: D1Database, token: string) {
 
 export async function listTrusted(db: D1Database, userId: string) {
   const rows = await db
-    .prepare(`select id, name, phone_hash, confirmed from trusted_contacts where user_id = ?`)
+    .prepare(`select id, name, phone, confirmed from trusted_contacts where user_id = ?`)
     .bind(userId)
-    .all<{ id: string; name: string; phone_hash: string; confirmed: number }>();
+    .all<{ id: string; name: string; phone: string; confirmed: number }>();
   return rows.results.map((row) => ({
     id: row.id,
     name: row.name,
-    phoneHash: row.phone_hash,
+    phoneEnding: row.phone.slice(-4),
     confirmed: Boolean(row.confirmed),
   }));
 }
@@ -585,8 +652,34 @@ export async function insertDebrief(db: D1Database, userId: string, planId: stri
     .run();
 }
 
+/**
+ * Removes everything personal and keeps what safety and accounts need: plans,
+ * deposits, messages, reports, strikes, bans and SOS rows. The users row and its
+ * phone hash stay, so a banned person who deletes and signs up again is still banned.
+ */
 export async function deleteAccount(db: D1Database, userId: string) {
-  await db.prepare(`delete from users where id = ?`).bind(userId).run();
+  const now = new Date().toISOString();
+  await db.batch([
+    db.prepare(`delete from sessions where user_id = ?`).bind(userId),
+    db.prepare(`delete from profile_photos where user_id = ?`).bind(userId),
+    db.prepare(`delete from voice_answers where user_id = ?`).bind(userId),
+    db.prepare(`delete from preferences where user_id = ?`).bind(userId),
+    db.prepare(`delete from contact_hashes where owner_id = ?`).bind(userId),
+    db.prepare(`delete from contact_allowlist where owner_id = ?`).bind(userId),
+    db.prepare(`delete from trusted_contacts where user_id = ?`).bind(userId),
+    db.prepare(`delete from away_status where user_id = ?`).bind(userId),
+    db.prepare(`delete from streaks where user_id = ?`).bind(userId),
+    db.prepare(`delete from likes where from_id = ? or to_id = ?`).bind(userId, userId),
+    db.prepare(`delete from drop_picks where person_id = ?`).bind(userId),
+    db.prepare(`delete from drops where user_id = ?`).bind(userId),
+    db.prepare(`delete from social_connections where user_id = ? or person_id = ?`).bind(userId, userId),
+    db.prepare(`update gift_claims set address = '' where user_id = ?`).bind(userId),
+    db.prepare(`update plans set status = 'closed' where status = 'upcoming' and (owner_id = ? or person_id = ?)`).bind(userId, userId),
+    db.prepare(
+      `update profiles set display_name = '', dob = null, gender = null, show_me = null, intent = null, area = null,
+         phone_hash = null, verified = 0, paused = 1, deleted_at = ? where id = ?`,
+    ).bind(now, userId),
+  ]);
 }
 
 export async function todayDrop(db: D1Database, userId: string, now = new Date()) {

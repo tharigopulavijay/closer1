@@ -37,13 +37,27 @@ export async function raiseSos(
     .run();
   const key = env.MSG91_KEY?.trim() ?? "";
   const contacts = await db
-    .prepare(`select phone_hash from trusted_contacts where user_id = ? and confirmed = 1`)
+    .prepare(`select phone from trusted_contacts where user_id = ? and confirmed = 1 and phone <> ''`)
     .bind(userId)
-    .all<{ phone_hash: string }>();
+    .all<{ phone: string }>();
   if (!key) return { tel: "tel:112", sent: false };
+  const me = await db.prepare(`select display_name from profiles where id = ?`).bind(userId).first<{ display_name: string }>();
+  const who = me?.display_name?.trim() || "Your contact";
+  const where =
+    typeof input.lat === "number" && typeof input.lng === "number"
+      ? ` Last location: https://maps.google.com/?q=${input.lat.toFixed(5)},${input.lng.toFixed(5)}`
+      : "";
+  const text = `Closer SOS: ${who} pressed the safety button. Please call them now.${where}`;
   const sms = sender ?? msg91Sender(key);
+  let delivered = 0;
+  // One failed number must not stop the alert reaching the others.
   for (const contact of contacts.results) {
-    await sms.send(contact.phone_hash, "Closer safety alert. Please check on them.");
+    try {
+      await sms.send(contact.phone, text);
+      delivered += 1;
+    } catch (error) {
+      console.error("sos sms failed", error);
+    }
   }
-  return { tel: "tel:112", sent: contacts.results.length > 0 };
+  return { tel: "tel:112", sent: delivered > 0 };
 }
