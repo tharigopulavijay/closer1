@@ -30,6 +30,12 @@ export async function createDepositOrder(db: D1Database, env: Env, userId: strin
   const keyId = env.RAZORPAY_KEY_ID?.trim() ?? "";
   const keySecret = env.RAZORPAY_KEY_SECRET?.trim() ?? "";
   if (!keyId || !keySecret) fail("not configured", 500);
+  // Asking twice reuses the first order: a new one would orphan a payment already in flight.
+  const existing = await db
+    .prepare(`select order_id from deposits where plan_id = ? and user_id = ?`)
+    .bind(planId, userId)
+    .first<{ order_id: string | null }>();
+  if (existing?.order_id) return { orderId: existing.order_id, amount: DEPOSIT_PAISE, currency: "INR" as const, keyId };
   const response = await fetch("https://api.razorpay.com/v1/orders", {
     method: "POST",
     headers: {
@@ -47,7 +53,8 @@ export async function createDepositOrder(db: D1Database, env: Env, userId: strin
   const created = (await response.json()) as { id?: string; amount?: number; currency?: string };
   if (!created.id || created.amount !== DEPOSIT_PAISE || created.currency !== "INR") fail("payment desk", 502);
   await saveDepositOrder(db, planId, userId, created.id);
-  return { orderId: created.id, amount: DEPOSIT_PAISE, currency: "INR" as const };
+  // The key id is public by Razorpay's design; Checkout needs it. The secret never leaves the Worker.
+  return { orderId: created.id, amount: DEPOSIT_PAISE, currency: "INR" as const, keyId };
 }
 
 export async function handleRazorpayWebhook(db: D1Database, secret: string | undefined, raw: string, signature: string) {
@@ -63,23 +70,25 @@ export async function handleRazorpayWebhook(db: D1Database, secret: string | und
   }
   if (event.event !== "payment.captured") return { ok: true, ignored: true };
   const payment = event.payload?.payment?.entity;
-  const planId = payment?.notes?.plan_id ?? "";
-  const userId = payment?.notes?.user_id ?? "";
   const paymentId = payment?.id ?? "";
-  if (!planId || !userId || !paymentId) fail("bad payload", 400);
-  const row = await db
-    .prepare(`select order_id from deposits where plan_id = ? and user_id = ?`)
-    .bind(planId, userId)
-    .first<{ order_id: string | null }>();
+  const orderId = payment?.order_id ?? "";
+  // The order id we created is the only link we trust. Checkout notes are optional and
+  // come from the browser, so they never decide whose deposit this is.
+  const row = orderId
+    ? await db
+        .prepare(`select plan_id, user_id from deposits where order_id = ?`)
+        .bind(orderId)
+        .first<{ plan_id: string; user_id: string }>()
+    : null;
   const amountOk = payment?.amount === DEPOSIT_PAISE && payment.currency === "INR";
-  const orderOk = Boolean(row?.order_id) && row?.order_id === payment?.order_id;
-  if (!orderOk || !amountOk) {
+  // A signed but unusable event is logged and acknowledged, so Razorpay stops retrying it.
+  if (!paymentId || !row || !amountOk) {
     return ignorePayment(
       db,
-      `plan ${planId} order ${payment?.order_id ?? ""} amount ${String(payment?.amount ?? "")} ${payment?.currency ?? ""}`,
-      userId,
+      `payment ${paymentId} order ${orderId} amount ${String(payment?.amount ?? "")} ${payment?.currency ?? ""}`,
+      row?.user_id ?? payment?.notes?.user_id ?? "",
     );
   }
-  await markDepositPaid(db, planId, userId, paymentId);
+  await markDepositPaid(db, row.plan_id, row.user_id, paymentId);
   return { ok: true, ignored: false };
 }

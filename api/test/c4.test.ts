@@ -108,7 +108,10 @@ describe("c4", () => {
       });
     const order = await api(`/plans/${plan}/deposit/order`, { method: "POST", token: token[A] });
     expect(order.status).toBe(200);
-    expect(order.json).toEqual({ orderId: "order_c4", amount: 9900, currency: "INR" });
+    expect(order.json).toEqual({ orderId: "order_c4", amount: 9900, currency: "INR", keyId: "rzp_test_key" });
+    // A second request reuses the order; the mock above answers only once, so a new call would fail.
+    const again = await api(`/plans/${plan}/deposit/order`, { method: "POST", token: token[A] });
+    expect(again.json).toMatchObject({ orderId: "order_c4" });
     expect(authorization).toBe(`Basic ${btoa("rzp_test_key:rzp_test_secret")}`);
     expect(JSON.parse(body)).toMatchObject({ amount: 9900, currency: "INR", notes: { plan_id: plan, user_id: A } });
     expect(await count(`select count(*) as n from deposits where plan_id = ? and user_id = ? and order_id = 'order_c4'`, plan, A)).toBe(1);
@@ -133,13 +136,15 @@ describe("c4", () => {
     expect((await api("/webhooks/razorpay", { method: "POST", raw: wrongOrder, headers: { "x-razorpay-signature": otherSignature } })).json).toMatchObject({ ignored: true });
     expect(await count(`select count(*) as n from deposits where plan_id = ? and status = 'paid'`, plan)).toBe(0);
 
+    // Notes that point at someone else's deposit change nothing: the order id decides.
     const raw = JSON.stringify({
       event: "payment.captured",
-      payload: { payment: { entity: { id: "pay_ok", amount: 9900, currency: "INR", order_id: "order_c4", notes: { plan_id: plan, user_id: A } } } },
+      payload: { payment: { entity: { id: "pay_ok", amount: 9900, currency: "INR", order_id: "order_c4", notes: { plan_id: plan, user_id: B } } } },
     });
     const signature = await hmacSha256Hex("razorpay-test-secret", raw);
     expect((await api("/webhooks/razorpay", { method: "POST", raw, headers: { "x-razorpay-signature": signature } })).status).toBe(200);
     expect(await count(`select count(*) as n from deposits where plan_id = ? and user_id = ? and status = 'paid' and payment_id = 'pay_ok'`, plan, A)).toBe(1);
+    expect(await count(`select count(*) as n from deposits where plan_id = ? and user_id = ? and status = 'paid'`, plan, B)).toBe(0);
   });
 
   it("shows a trusted-contact page on GET and confirms only on POST", async () => {
@@ -165,5 +170,9 @@ describe("c4", () => {
     const posted = await SELF.fetch("http://closer.test/trusted-contacts/confirm?token=page-token", { method: "POST" });
     expect(posted.status).toBe(200);
     expect(await count(`select count(*) as n from trusted_contacts where id = ? and confirmed = 1 and confirm_token is null`, contactId)).toBe(1);
+
+    const reused = await SELF.fetch("http://closer.test/trusted-contacts/confirm?token=page-token", { method: "POST" });
+    expect(reused.status).toBe(400);
+    expect(await reused.text()).toContain("already been used");
   });
 });

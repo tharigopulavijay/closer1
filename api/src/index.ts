@@ -281,9 +281,16 @@ app.get("/trusted-contacts/confirm", async (c) => {
 app.post("/trusted-contacts/confirm", async (c) => {
   const queryToken = c.req.query("token") ?? "";
   if (queryToken) {
-    await confirmTrustedContact(c.env.DB, queryToken);
     noStore(c);
-    return c.html(`<!doctype html><html><head><meta name="robots" content="noindex"><title>Confirmed</title></head><body><p>You are a trusted contact.</p></body></html>`);
+    const page = (text: string) =>
+      `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="robots" content="noindex"><title>Trusted contact</title></head><body><p>${text}</p></body></html>`;
+    try {
+      await confirmTrustedContact(c.env.DB, queryToken);
+    } catch {
+      // A person opened this link, not an app: a used or wrong link gets a sentence, not JSON.
+      return c.html(page("This link has already been used or is no longer valid."), 400);
+    }
+    return c.html(page("You are a trusted contact."));
   }
   if (!service(c)) return c.json({ error: "permission denied" }, 403);
   const body = await c.req.json<{ token?: string }>();

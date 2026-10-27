@@ -380,11 +380,15 @@ const CHAT_TICKET_MS = 60_000;
 export async function issueChatTicket(db: D1Database, userId: string, planId: string) {
   await assertChatAccess(db, userId, planId);
   const ticket = randomToken();
-  const expiresAt = new Date(Date.now() + CHAT_TICKET_MS).toISOString();
-  await db
-    .prepare(`insert into chat_tickets (token_hash, plan_id, user_id, expires_at) values (?, ?, ?, ?)`)
-    .bind(await sha256(ticket), planId, userId, expiresAt)
-    .run();
+  const now = new Date();
+  const expiresAt = new Date(now.getTime() + CHAT_TICKET_MS).toISOString();
+  // Each reconnect issues a ticket, so this person's spent and stale ones are cleared as we go.
+  await db.batch([
+    db.prepare(`delete from chat_tickets where user_id = ? and (used_at is not null or expires_at <= ?)`).bind(userId, now.toISOString()),
+    db
+      .prepare(`insert into chat_tickets (token_hash, plan_id, user_id, expires_at) values (?, ?, ?, ?)`)
+      .bind(await sha256(ticket), planId, userId, expiresAt),
+  ]);
   return { ticket, expiresAt };
 }
 
