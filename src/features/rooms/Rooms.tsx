@@ -1,5 +1,5 @@
 import { Coffee, Gift, Hand, Mic, Plus, Timer, Volume2, VolumeX } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { PEOPLE } from "../../mocks/people";
 import { api } from "../../lib/api";
@@ -25,11 +25,34 @@ const TOPICS = [
   "A green flag you trust",
 ];
 
+type LiveRoomRow = { id: string; title: string; topic: string; host: string; speakers: number };
+
+/** Real rooms from the server in live mode; null while loading. Sample rooms never appear there. */
+function useLiveRooms() {
+  const [rooms, setRooms] = useState<LiveRoomRow[] | null>(isLive() ? null : []);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    if (!isLive()) return;
+    let cancelled = false;
+    api
+      .rooms()
+      .then((result) => !cancelled && setRooms(result.rooms))
+      .catch((failure) => !cancelled && setError(failure instanceof Error ? failure.message : "Could not load rooms"));
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  return { rooms, error };
+}
+
 export function RoomsHome() {
   const { state } = useStore();
   const navigate = useNavigate();
-  const live = state.rooms.filter((room) => room.live && !state.endedRooms.includes(room.id));
-  const later = state.rooms.filter((room) => !room.live && !state.endedRooms.includes(room.id));
+  const fetched = useLiveRooms();
+  const live = isLive()
+    ? (fetched.rooms ?? []).map((room) => ({ ...room, listeners: 0, live: true, scheduled: null }))
+    : state.rooms.filter((room) => room.live && !state.endedRooms.includes(room.id));
+  const later = isLive() ? [] : state.rooms.filter((room) => !room.live && !state.endedRooms.includes(room.id));
   return (
     <Screen tab>
       <Headline text="Rooms live now" italic="live" />
@@ -40,18 +63,23 @@ export function RoomsHome() {
         <span className="mt-1 block text-sm text-mute">Matched on intent and language. Names stay hidden unless you both reveal.</span>
       </button>
       <h3 className="mb-3 mt-6 flex items-center gap-2 text-sm text-mute"><Mic size={14} /> Live now</h3>
+      {isLive() && fetched.rooms === null && !fetched.error ? <p className="text-sm text-mute">Loading rooms…</p> : null}
+      {fetched.error ? <p className="text-sm text-coral">{fetched.error}</p> : null}
+      {isLive() && fetched.rooms?.length === 0 ? <p className="text-sm text-mute">No rooms are open right now. Start one.</p> : null}
       <div className="space-y-3">
         {live.map((room) => (
           <button key={room.id} type="button" onClick={() => navigate(`/rooms/${room.id}`)} className="flex min-h-11 w-full items-center gap-3 rounded-3xl border border-line bg-card p-4 text-left">
             <span className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-mint/15 text-mint"><Mic size={18} /></span>
             <span className="min-w-0 flex-1">
               <span className="block font-semibold">{room.title}</span>
-              <span className="mt-1 block text-sm text-mute">{room.speakers} speaking · {room.listeners} listening · {room.host}</span>
+              <span className="mt-1 block text-sm text-mute">
+                {isLive() ? `${room.speakers} speaking · ${room.host}` : `${room.speakers} speaking · ${room.listeners} listening · ${room.host}`}
+              </span>
             </span>
           </button>
         ))}
       </div>
-      <h3 className="mb-3 mt-6 text-sm text-mute">Later</h3>
+      {later.length ? <h3 className="mb-3 mt-6 text-sm text-mute">Later</h3> : null}
       {later.map((room) => (
         <p key={room.id} className="flex min-h-11 items-center rounded-2xl border border-line px-4 py-3 text-sm">{room.title} · {room.scheduled}</p>
       ))}
@@ -105,6 +133,14 @@ export function LiveRoom() {
   const [gifts, setGifts] = useState(false);
   const [note, setNote] = useState("");
   const [tokenNote, setTokenNote] = useState("");
+  const fetched = useLiveRooms();
+  const liveRoom = fetched.rooms?.find((item) => item.id === id);
+  // Live seats are the people actually in the LiveKit room, never sample names.
+  const [voices, setVoices] = useState<string[]>([]);
+  const mic = useRef<((on: boolean) => Promise<unknown>) | null>(null);
+  useEffect(() => {
+    void mic.current?.(!muted);
+  }, [muted]);
   useEffect(() => {
     let cancelled = false;
     let connected: { disconnect: () => void } | null = null;
@@ -126,12 +162,26 @@ export function LiveRoom() {
           setTokenNote("Voice token is ready. A LiveKit URL connects the audio.");
           return;
         }
-        const { Room } = await import("livekit-client");
+        const { Room, RoomEvent } = await import("livekit-client");
         const voice = new Room();
+        const listPeople = () =>
+          setVoices([...voice.remoteParticipants.values()].map((person) => person.name || "Member"));
+        voice.on(RoomEvent.ParticipantConnected, listPeople).on(RoomEvent.ParticipantDisconnected, listPeople);
         await voice.connect(env.livekitUrl, issued.token);
         connected = voice;
-        if (cancelled) voice.disconnect();
-        else setTokenNote("Connected.");
+        if (cancelled) {
+          voice.disconnect();
+          return;
+        }
+        listPeople();
+        // Joining a room means speaking in it: publish the microphone, and let Mute switch it.
+        mic.current = (on: boolean) => voice.localParticipant.setMicrophoneEnabled(on);
+        try {
+          await voice.localParticipant.setMicrophoneEnabled(true);
+          setTokenNote("Connected. Your microphone is on.");
+        } catch {
+          setTokenNote("Connected, but the microphone is blocked. Allow it in the browser to speak.");
+        }
       } catch (error) {
         if (!cancelled) setTokenNote(error instanceof Error ? error.message : "Could not join this room");
       }
@@ -139,22 +189,32 @@ export function LiveRoom() {
     void connect();
     return () => {
       cancelled = true;
+      mic.current = null;
       connected?.disconnect();
     };
   }, [id]);
   if ((!room || state.endedRooms.includes(room.id)) && !isLive()) {
     return <Screen title="Room" back="/rooms"><p>This room has ended.</p></Screen>;
   }
-  const shown = room ?? { id, title: "Room", topic: "", host: "Host", ai: false, speakers: 1, listeners: 0, live: true, scheduled: null };
+  const shown = isLive()
+    ? { id, title: liveRoom?.title ?? "Room", topic: liveRoom?.topic ?? "", host: liveRoom?.host ?? "Host", ai: false, speakers: 1, listeners: 0, live: true, scheduled: null }
+    : room ?? { id, title: "Room", topic: "", host: "Host", ai: false, speakers: 1, listeners: 0, live: true, scheduled: null };
   if (room && state.endedRooms.includes(room.id)) {
     return <Screen title="Room" back="/rooms"><p>This room has ended.</p></Screen>;
   }
-  const speakers = ["Imran", "Laya", "Meher"].filter((name) => name !== shown.host).slice(0, 2);
-  const seats = [
-    { name: shown.host, role: "Host", photo: samplePhoto(state.preview, shown.host.toLowerCase()) },
-    ...speakers.map((name) => ({ name, role: "Speaker", photo: samplePhoto(state.preview, name.toLowerCase()) })),
-    { name: "You", role: hand ? "Hand raised" : "Listener", photo: state.preview ? SELF_PHOTOS[0] : undefined },
-  ];
+  const seats = isLive()
+    ? [
+        ...voices.map((name, index) => ({ key: `${name}-${index}`, name, role: "Speaker", photo: undefined as string | undefined })),
+        { key: "you", name: "You", role: muted ? "Muted" : "Speaking", photo: undefined as string | undefined },
+      ]
+    : [
+        { key: "host", name: shown.host, role: "Host", photo: samplePhoto(state.preview, shown.host.toLowerCase()) },
+        ...["Imran", "Laya", "Meher"]
+          .filter((name) => name !== shown.host)
+          .slice(0, 2)
+          .map((name) => ({ key: name, name, role: "Speaker", photo: samplePhoto(state.preview, name.toLowerCase()) })),
+        { key: "you", name: "You", role: hand ? "Hand raised" : "Listener", photo: state.preview ? SELF_PHOTOS[0] : undefined },
+      ];
   return (
     <Screen title={shown.title} back="/rooms" tab>
       {shown.ai ? <p className="mb-3 inline-flex rounded-full bg-mint/15 px-3 py-1 text-xs font-semibold text-mint">AI moderation on in this room</p> : null}
@@ -162,7 +222,7 @@ export function LiveRoom() {
       <p className="mt-2 text-xs text-mute">{tokenNote}</p>
       <div className="mt-4 grid grid-cols-2 gap-3">
         {seats.map((seat) => (
-          <Card key={seat.name}>
+          <Card key={seat.key}>
             <Portrait name={seat.name} palette={["#3A2A48", "#FFB547"]} src={state.displayMode === "photo" ? seat.photo : undefined} className="h-24 w-full rounded-2xl" mode={state.displayMode} />
             <p className="mt-2 font-semibold">{state.discreet ? "Guest" : seat.name}</p>
             <p className="text-xs text-mute">{seat.role}</p>

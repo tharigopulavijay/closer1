@@ -1026,7 +1026,7 @@ export async function verifyMember(db: D1Database, actorId: string, targetId: st
   if (!target || target.deleted_at) fail("missing user", 404);
   const now = new Date().toISOString();
   await db.batch([
-    db.prepare(`update profiles set verified = 1 where id = ?`).bind(targetId),
+    db.prepare(`update profiles set verified = 1, retake_note = null where id = ?`).bind(targetId),
     db.prepare(`insert into audit_log (id, actor, role, action, detail, created_at) values (?, ?, 'ops', 'verify', ?, ?)`).bind(
       crypto.randomUUID(),
       actorId,

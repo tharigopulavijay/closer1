@@ -60,42 +60,47 @@ async function assertVoiceMember(db: D1Database, userId: string) {
   return profile;
 }
 
-async function ensureRoom(db: D1Database, roomId: string, userId: string) {
-  const existing = await db.prepare(`select id, host_id, kind from rooms where id = ?`).bind(roomId).first<RoomRow>();
-  if (existing) return existing;
-  const now = new Date().toISOString();
-  try {
-    await db
-      .prepare(`insert into rooms (id, host_id, title, topic, kind, created_at) values (?, ?, '', '', 'room', ?)`)
-      .bind(roomId, userId, now)
-      .run();
-  } catch {
-    const again = await db.prepare(`select id, host_id, kind from rooms where id = ?`).bind(roomId).first<RoomRow>();
-    if (again) return again;
-    throw new Error("room");
-  }
-  return { id: roomId, host_id: userId, kind: "room" };
+/** A voice token lives an hour, so a seat taken longer ago than that is free again. */
+const SEAT_MS = 60 * 60 * 1000;
+/** A Chai Break waiting longer than this is stale: the person has most likely gone. */
+const CHAI_WAIT_MS = 2 * 60 * 1000;
+
+async function findRoom(db: D1Database, roomId: string) {
+  // Rooms come only from POST /rooms or Chai Break; asking for a token never creates one.
+  const room = await db.prepare(`select id, host_id, kind from rooms where id = ?`).bind(roomId).first<RoomRow>();
+  if (!room) fail("no such room", 404);
+  return room;
 }
 
 async function seatSpeaker(db: D1Database, room: RoomRow, userId: string) {
+  const now = new Date();
   const member = await db
     .prepare(`select guest_name from room_members where room_id = ? and user_id = ?`)
     .bind(room.id, userId)
     .first<{ guest_name: string }>();
-  if (member) return member.guest_name;
+  if (member) {
+    // Rejoining keeps the same anonymous name and renews the seat.
+    await db
+      .prepare(`update room_members set joined_at = ? where room_id = ? and user_id = ?`)
+      .bind(now.toISOString(), room.id, userId)
+      .run();
+    return member.guest_name;
+  }
   const cap = room.kind === "chai" ? CHAI_CAP : SPEAKER_CAP;
+  // Chai Break is two people for good; a normal room counts only seats taken within a token's lifetime.
+  const since = room.kind === "chai" ? "" : new Date(now.getTime() - SEAT_MS).toISOString();
   const seated = await db
-    .prepare(`select count(*) as n from room_members where room_id = ? and role = 'speaker'`)
-    .bind(room.id)
+    .prepare(`select count(*) as n from room_members where room_id = ? and role = 'speaker' and joined_at > ?`)
+    .bind(room.id, since)
     .first<{ n: number }>();
   if (Number(seated?.n ?? 0) >= cap) fail("room full");
   const guest = guestLabel();
-  const now = new Date().toISOString();
   await db
     .prepare(
-      `insert into room_members (room_id, user_id, role, guest_name, revealed, joined_at) values (?, ?, 'speaker', ?, 0, ?)`,
+      `insert into room_members (room_id, user_id, role, guest_name, revealed, joined_at) values (?, ?, 'speaker', ?, 0, ?)
+       on conflict(room_id, user_id) do update set joined_at = excluded.joined_at`,
     )
-    .bind(room.id, userId, guest, now)
+    .bind(room.id, userId, guest, now.toISOString())
     .run();
   return guest;
 }
@@ -111,9 +116,13 @@ export async function issueRoomToken(
   const secret = apiSecret?.trim() ?? "";
   if (!key || !secret) fail("not configured", 500);
   if (!roomId.trim()) fail("bad room", 400);
-  await assertVoiceMember(db, userId);
-  const room = await ensureRoom(db, roomId.trim(), userId);
-  if (room.host_id !== userId) {
+  const me = await assertVoiceMember(db, userId);
+  const room = await findRoom(db, roomId.trim());
+  if (room.kind === "chai") {
+    // A Chai Break is entered only through matching, never by guessing its id.
+    const seat = await db.prepare(`select 1 as n from room_members where room_id = ? and user_id = ?`).bind(room.id, userId).first();
+    if (!seat) fail("not in room", 403);
+  } else if (room.host_id !== userId) {
     const blocked = await db
       .prepare(`select 1 as n from blocks where blocker = ? and blocked = ?`)
       .bind(room.host_id, userId)
@@ -123,7 +132,8 @@ export async function issueRoomToken(
   const guest = await seatSpeaker(db, room, userId);
   // Chai Break tokens carry the anonymous name only. A normal room keeps the account id, which existing clients expect.
   if (room.kind === "chai") return signLivekitToken(key, secret, guest, room.id, new Date(), guest);
-  return signLivekitToken(key, secret, userId, room.id);
+  // In a normal room people speak under their first name, so the seat grid can show who is talking.
+  return signLivekitToken(key, secret, userId, room.id, new Date(), me.display_name || "Member");
 }
 
 export async function createVoiceRoom(db: D1Database, userId: string, title: string, topic: string) {
@@ -138,19 +148,48 @@ export async function createVoiceRoom(db: D1Database, userId: string, title: str
   return { id };
 }
 
+/** Rooms opened in the last 12 hours, without anyone the viewer has blocked or been blocked by. */
+export async function listVoiceRooms(db: D1Database, userId: string) {
+  await assertVoiceMember(db, userId);
+  const now = Date.now();
+  const rows = await db
+    .prepare(
+      `select r.id, r.title, r.topic, r.created_at, p.display_name as host,
+         (select count(*) from room_members m where m.room_id = r.id and m.role = 'speaker' and m.joined_at > ?3) as speakers
+       from rooms r join profiles p on p.id = r.host_id
+       where r.kind = 'room' and r.created_at > ?2 and p.deleted_at is null
+         and not exists (select 1 from bans x where x.user_id = r.host_id)
+         and not exists (select 1 from blocks b where (b.blocker = r.host_id and b.blocked = ?1) or (b.blocker = ?1 and b.blocked = r.host_id))
+       order by r.created_at desc limit 50`,
+    )
+    .bind(userId, new Date(now - 12 * SEAT_MS).toISOString(), new Date(now - SEAT_MS).toISOString())
+    .all<{ id: string; title: string; topic: string; created_at: string; host: string; speakers: number }>();
+  return rows.results.map((row) => ({
+    id: row.id,
+    title: row.title,
+    topic: row.topic,
+    host: row.host,
+    speakers: Number(row.speakers),
+    createdAt: row.created_at,
+  }));
+}
+
 export async function joinChai(db: D1Database, userId: string) {
   await assertVoiceMember(db, userId);
+  const fresh = new Date(Date.now() - CHAI_WAIT_MS).toISOString();
+  // Only someone who started waiting in the last two minutes, and no block in either direction.
   const open = await db
     .prepare(
       `select r.id from rooms r
-       where r.kind = 'chai'
+       where r.kind = 'chai' and r.created_at > ?2
          and (select count(*) from room_members m where m.room_id = r.id) = 1
-         and not exists (select 1 from blocks b where b.blocker = r.host_id and b.blocked = ?1)
+         and not exists (select 1 from blocks b where (b.blocker = r.host_id and b.blocked = ?1) or (b.blocker = ?1 and b.blocked = r.host_id))
+         and not exists (select 1 from bans x where x.user_id = r.host_id)
          and not exists (select 1 from room_members m where m.room_id = r.id and m.user_id = ?1)
        order by r.created_at
        limit 1`,
     )
-    .bind(userId)
+    .bind(userId, fresh)
     .first<{ id: string }>();
   if (open) {
     const room = await db.prepare(`select id, host_id, kind from rooms where id = ?`).bind(open.id).first<RoomRow>();

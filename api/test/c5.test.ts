@@ -18,12 +18,19 @@ describe("voice rooms", () => {
     const token = { A: await login(A), B: await login(B), U: await login(U), C: await login(C), S: await login(S) };
     expect((await api("/rooms/full/token", { method: "POST", token: token.U })).text).toMatch(/verified only/);
     expect((await api("/rooms/full/token", { method: "POST", token: token.C })).text).toMatch(/banned/);
+    // Asking for a token never creates a room.
+    expect((await api("/rooms/made-up/token", { method: "POST", token: token.A })).status).toBe(404);
+    expect(await count(`select count(*) as n from rooms where id = 'made-up'`)).toBe(0);
 
-    const host = await api("/rooms/hosted/token", { method: "POST", token: token.A });
+    const opened = await api("/rooms", { token: token.A, body: { title: "Hosted room", topic: "" } });
+    const hosted = (opened.json as { id: string }).id;
+    const host = await api(`/rooms/${hosted}/token`, { method: "POST", token: token.A });
     expect(host.status).toBe(200);
     expect(payload((host.json as { token: string }).token).sub).toBe(A);
+    expect(((await api("/rooms", { token: token.S })).json as { rooms: { id: string }[] }).rooms.map((room) => room.id)).toContain(hosted);
     await env.DB.prepare(`insert into blocks (blocker, blocked) values (?, ?)`).bind(A, B).run();
-    expect((await api("/rooms/hosted/token", { method: "POST", token: token.B })).text).toMatch(/blocked/);
+    expect((await api(`/rooms/${hosted}/token`, { method: "POST", token: token.B })).text).toMatch(/blocked/);
+    expect(((await api("/rooms", { token: token.B })).json as { rooms: { id: string }[] }).rooms.map((room) => room.id)).not.toContain(hosted);
 
     const now = new Date().toISOString();
     await env.DB.prepare(`insert into rooms (id, host_id, title, topic, kind, created_at) values ('packed', ?, 'Packed', '', 'room', ?)`).bind(A, now).run();
@@ -43,6 +50,26 @@ describe("voice rooms", () => {
     expect((await api("/rooms/packed/token", { method: "POST", token: extra })).text).toMatch(/room full/);
     expect((await api("/rooms/packed/token", { method: "POST", token: token.S })).status).toBe(200);
     expect(await count(`select count(*) as n from room_members where room_id = 'packed' and role = 'speaker'`)).toBe(8);
+
+    // Seats taken over an hour ago have expired with their tokens, so the room has space again.
+    const old = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
+    await env.DB.prepare(`update room_members set joined_at = ? where room_id = 'packed' and user_id = ?`).bind(old, O3).run();
+    expect((await api("/rooms/packed/token", { method: "POST", token: extra })).status).toBe(200);
+  });
+
+  it("never pairs Chai Break with a stale wait or across a block in either direction", async () => {
+    const tokenA = await login(A);
+    const tokenB = await login(B);
+    const tokenS = await login(S);
+    const stale = (await api("/rooms/chai", { method: "POST", token: tokenA })).json as { id: string };
+    await env.DB.prepare(`update rooms set created_at = ? where id = ?`).bind(new Date(Date.now() - 10 * 60 * 1000).toISOString(), stale.id).run();
+    const fresh = (await api("/rooms/chai", { method: "POST", token: tokenB })).json as { id: string };
+    expect(fresh.id).not.toBe(stale.id);
+
+    await env.DB.prepare(`insert into blocks (blocker, blocked) values (?, ?)`).bind(S, B).run();
+    const other = (await api("/rooms/chai", { method: "POST", token: tokenS })).json as { id: string };
+    expect(other.id).not.toBe(fresh.id);
+    expect((await api(`/rooms/${fresh.id}/token`, { method: "POST", token: tokenS })).status).toBe(403);
   });
 
   it("keeps Chai Break anonymous until both people reveal", async () => {

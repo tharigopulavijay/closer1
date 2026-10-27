@@ -220,6 +220,9 @@ describe("c2", () => {
   });
 
   it("signs a LiveKit token for a verified member", async () => {
+    await env.DB.prepare(`insert into rooms (id, host_id, title, topic, kind, created_at) values ('room-1', ?, 'Room', '', 'room', ?)`)
+      .bind(A, new Date().toISOString())
+      .run();
     expect((await api("/rooms/room-1/token", { method: "POST", token: token[U] })).text).toMatch(/verified only/);
     expect((await api("/rooms/room-1/token", { method: "POST", token: token[C] })).text).toMatch(/banned/);
     const issued = await api("/rooms/room-1/token", { method: "POST", token: token[A] });

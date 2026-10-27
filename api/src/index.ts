@@ -3,7 +3,7 @@ import { logout, requestOtp, userIdForToken, verifyOtp } from "./auth";
 import { PlanChat } from "./chat";
 import { buildTomorrowDrop } from "./drop";
 import { PolicyError, fail, type Env } from "./env";
-import { createVoiceRoom, issueRoomToken, joinChai, revealChai } from "./livekit";
+import { createVoiceRoom, issueRoomToken, joinChai, listVoiceRooms, revealChai } from "./livekit";
 import { readMedia, storeMedia } from "./media";
 import {
   addTrusted,
@@ -375,6 +375,8 @@ app.post("/webhooks/razorpay", async (c) => {
   const raw = await c.req.text();
   return c.json(await handleRazorpayWebhook(c.env.DB, c.env.RAZORPAY_WEBHOOK_SECRET, raw, c.req.header("x-razorpay-signature") ?? ""));
 });
+
+app.get("/rooms", async (c) => c.json({ rooms: await listVoiceRooms(c.env.DB, c.get("userId")) }));
 
 app.post("/rooms", async (c) => {
   const body = await c.req.json<{ title?: string; topic?: string }>();

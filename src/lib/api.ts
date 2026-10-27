@@ -51,6 +51,19 @@ export function wsUrl(path: string, ticket: string) {
   return `${proto}//${host}${base}${withTicket}`;
 }
 
+/** Server codes that would read as jargon on a phone get a plain sentence; the rest pass through. */
+const FRIENDLY: Record<string, string> = {
+  "not configured": "This isn't switched on yet. Please try again later.",
+  "payment desk": "The payment service didn't answer. Please try again.",
+  "could not send code": "We couldn't text you a code. Please try again in a minute.",
+  "room full": "This room is full right now.",
+  error: "Something went wrong. Please try again.",
+};
+
+function friendly(message: string) {
+  return FRIENDLY[message] ?? message;
+}
+
 export async function request<T>(path: string, init: { method?: string; body?: unknown; form?: FormData } = {}): Promise<T> {
   const token = sessionToken();
   const headers = new Headers();
@@ -80,7 +93,7 @@ export async function request<T>(path: string, init: { method?: string; body?: u
       json = null;
     }
   }
-  if (!response.ok) throw new ApiError(json?.error || "error", response.status);
+  if (!response.ok) throw new ApiError(friendly(json?.error || "error"), response.status);
   return json as T;
 }
 
@@ -162,6 +175,8 @@ export const api = {
   chatTicket: (planId: string) => request<{ ticket: string; expiresAt: string }>(`/plans/${planId}/chat-ticket`, { method: "POST" }),
   depositOrder: (planId: string) =>
     request<{ orderId: string; amount: number; currency: string; keyId: string }>(`/plans/${planId}/deposit/order`, { method: "POST" }),
+  rooms: () =>
+    request<{ rooms: { id: string; title: string; topic: string; host: string; speakers: number; createdAt: string }[] }>("/rooms"),
   createRoom: (title: string, topic: string) => request<{ id: string }>("/rooms", { body: { title, topic } }),
   roomToken: (roomId: string) => request<{ token: string }>(`/rooms/${roomId}/token`, { method: "POST" }),
   joinChai: () => request<{ id: string; guestName: string }>("/rooms/chai", { method: "POST" }),

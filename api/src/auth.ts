@@ -57,6 +57,8 @@ export async function requestOtp(env: OtpEnv, phone: string, now = new Date()) {
 
   const dev = devCode(env);
   const code = dev || randomCode();
+  // In production a code that cannot be texted is useless, so refuse rather than pretend it was sent.
+  if (env.ENVIRONMENT === "production" && !msg91Configured(env)) fail("could not send code", 502);
   const productionSms = env.ENVIRONMENT === "production" && !dev && msg91Configured(env);
   // Send before the row exists, so a failed text does not leave a code that can be guessed.
   if (productionSms) await sendMsg91(env, digits, code);
