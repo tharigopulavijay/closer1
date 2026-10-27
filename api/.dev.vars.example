@@ -1,4 +1,5 @@
 ENVIRONMENT=development
 DEV_OTP=123456
 ALLOWED_ORIGINS=http://localhost:5173
-# Secrets stay out of this file: MSG91_KEY, MSG91_TEMPLATE_ID, RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET.
+# Secrets stay out of this file: MSG91_KEY, MSG91_TEMPLATE_ID, RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET, VAPID_PRIVATE_KEY.
+# VAPID_PUBLIC_KEY is also set with wrangler, so the browser and the cron share one key.

@@ -48,6 +48,7 @@ import {
   verifyMember,
   verifyQueue,
 } from "./policy";
+import { pushStatus, sendDropReminders, subscribePush, unsubscribePush } from "./push";
 import { createDepositOrder, handleRazorpayWebhook } from "./razorpay";
 import { raiseSos } from "./sos";
 
@@ -378,6 +379,21 @@ app.post("/webhooks/razorpay", async (c) => {
 
 app.get("/rooms", async (c) => c.json({ rooms: await listVoiceRooms(c.env.DB, c.get("userId")) }));
 
+app.get("/push", async (c) => c.json(await pushStatus(c.env.DB, c.get("userId"), c.env.VAPID_PUBLIC_KEY)));
+
+app.post("/push", async (c) => {
+  const body = await c.req.json<{ endpoint?: string; p256dh?: string; auth?: string; keys?: { p256dh?: string; auth?: string } }>();
+  return c.json(
+    await subscribePush(c.env.DB, c.get("userId"), {
+      endpoint: body.endpoint,
+      p256dh: body.p256dh ?? body.keys?.p256dh,
+      auth: body.auth ?? body.keys?.auth,
+    }),
+  );
+});
+
+app.delete("/push", async (c) => c.json(await unsubscribePush(c.env.DB, c.get("userId"))));
+
 app.post("/rooms", async (c) => {
   const body = await c.req.json<{ title?: string; topic?: string }>();
   return c.json(await createVoiceRoom(c.env.DB, c.get("userId"), body.title ?? "", body.topic ?? ""));
@@ -419,6 +435,7 @@ export { PlanChat };
 export default {
   fetch: (request: Request, env: Env, ctx: ExecutionContext) => app.fetch(request, env, ctx),
   scheduled: (_event: ScheduledController, env: Env, ctx: ExecutionContext) => {
-    ctx.waitUntil(buildTomorrowDrop(env.DB, new Date(_event.scheduledTime)));
+    const when = new Date(_event.scheduledTime);
+    ctx.waitUntil(Promise.all([buildTomorrowDrop(env.DB, when), sendDropReminders(env)]));
   },
 };

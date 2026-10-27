@@ -202,6 +202,9 @@ export const api = {
   claimGift: (milestone: number, gift: string, address: string) =>
     request<{ id: string }>("/gifts/claim", { body: { milestone, gift, address } }),
   deleteAccount: () => request<{ ok: boolean }>("/account", { method: "DELETE" }),
+  pushStatus: () => request<{ optedIn: boolean; publicKey: string | null }>("/push"),
+  subscribePush: (body: { endpoint: string; p256dh: string; auth: string }) => request<{ optedIn: boolean }>("/push", { body }),
+  unsubscribePush: () => request<{ optedIn: boolean }>("/push", { method: "DELETE" }),
   sos: (body: { planId?: string; lat?: number; lng?: number }) => request<unknown>("/sos", { body }),
   mediaBlob: async (key: string) => {
     const token = sessionToken();

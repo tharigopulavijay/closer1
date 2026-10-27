@@ -20,6 +20,8 @@ declare module "cloudflare:test" {
     RAZORPAY_KEY_SECRET: string;
     LIVEKIT_API_KEY: string;
     LIVEKIT_API_SECRET: string;
+    VAPID_PUBLIC_KEY?: string;
+    VAPID_PRIVATE_KEY?: string;
     ALLOWED_ORIGINS: string;
     MSG91_KEY?: string;
     MSG91_TEMPLATE_ID?: string;

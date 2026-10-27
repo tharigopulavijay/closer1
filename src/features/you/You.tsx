@@ -3,7 +3,11 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { MILESTONES, type DisplayMode } from "../../lib/types";
 import { addDays } from "../../lib/time";
+import { api } from "../../lib/api";
 import { isLive } from "../../lib/env";
+import { canUsePush, installTarget } from "../../pwa";
+import { PolicyLinks } from "../legal/Legal";
+import { POLICY_PAGES } from "../legal/pages";
 import {
   blankState,
   enterPreview,
@@ -33,6 +37,117 @@ function years(dob: string) {
   const month = now.getMonth() - born.getMonth();
   if (month < 0 || (month === 0 && now.getDate() < born.getDate())) age -= 1;
   return age;
+}
+
+type InstallPrompt = Event & { prompt: () => Promise<void> };
+
+function InstallHint() {
+  const [target, setTarget] = useState<"ios" | "android" | null>(null);
+  const [prompt, setPrompt] = useState<InstallPrompt | null>(null);
+  useEffect(() => {
+    const standalone =
+      window.matchMedia("(display-mode: standalone)").matches ||
+      Boolean((navigator as Navigator & { standalone?: boolean }).standalone);
+    setTarget(installTarget(navigator.userAgent, standalone));
+    const onPrompt = (event: Event) => {
+      event.preventDefault();
+      setPrompt(event as InstallPrompt);
+    };
+    window.addEventListener("beforeinstallprompt", onPrompt);
+    return () => window.removeEventListener("beforeinstallprompt", onPrompt);
+  }, []);
+  if (target === "ios") {
+    return (
+      <Card className="mt-4">
+        <p className="font-semibold">Add to home screen</p>
+        <p className="mt-1 text-sm text-mute">On iPhone, tap Share, then Add to Home Screen.</p>
+      </Card>
+    );
+  }
+  if (target !== "android") return null;
+  return (
+    <Card className="mt-4">
+      <p className="font-semibold">Add to home screen</p>
+      <p className="mt-1 text-sm text-mute">Keep Closer on your Android home screen. The icon is the one already used by the app.</p>
+      {prompt ? (
+        <div className="mt-3">
+          <Button onClick={() => void prompt.prompt()}>Add to home screen</Button>
+        </div>
+      ) : null}
+    </Card>
+  );
+}
+
+function bytesFromKey(value: string) {
+  const padded = value.replaceAll("-", "+").replaceAll("_", "/") + "=".repeat((4 - (value.length % 4)) % 4);
+  const binary = atob(padded);
+  const out = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) out[i] = binary.charCodeAt(i);
+  return out;
+}
+
+function DropReminder() {
+  const [on, setOn] = useState(false);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    if (!canUsePush(isLive())) return;
+    let gone = false;
+    api.pushStatus()
+      .then((status) => {
+        if (!gone) setOn(status.optedIn);
+      })
+      .catch(() => undefined);
+    return () => {
+      gone = true;
+    };
+  }, []);
+  if (!canUsePush(isLive())) return null;
+  return (
+    <div className="mt-4 space-y-2">
+      <Toggle
+        on={on}
+        label="9 pm Drop reminder"
+        hint="A notification when the Drop opens. Preview mode never sends one."
+        onChange={(next) => {
+          void (async () => {
+            setError("");
+            try {
+              if (!next) {
+                await api.unsubscribePush();
+                setOn(false);
+                return;
+              }
+              if (!("serviceWorker" in navigator) || !("PushManager" in window)) {
+                setError("Add Closer to your home screen before turning reminders on.");
+                return;
+              }
+              const status = await api.pushStatus();
+              if (!status.publicKey) {
+                setError("Reminders are not set up on this server yet.");
+                return;
+              }
+              const registration = await navigator.serviceWorker.ready;
+              const subscription = await registration.pushManager.subscribe({
+                userVisibleOnly: true,
+                applicationServerKey: bytesFromKey(status.publicKey),
+              });
+              const json = subscription.toJSON();
+              await api.subscribePush({
+                endpoint: json.endpoint ?? "",
+                p256dh: json.keys?.p256dh ?? "",
+                auth: json.keys?.auth ?? "",
+              });
+              setOn(true);
+            } catch (err) {
+              setOn(false);
+              setError(err instanceof Error ? err.message : "Could not turn on reminders");
+            }
+          })();
+        }}
+      />
+      {error ? <p className="text-sm text-coral">{error}</p> : null}
+    </div>
+  );
 }
 
 export function YouHome() {
@@ -84,6 +199,8 @@ export function YouHome() {
           Request a vouch
         </a>
       </Card>
+      <InstallHint />
+      <DropReminder />
       <div className="mt-4 space-y-3">
         <Toggle on={state.draft.hideFromContacts} onChange={(hideFromContacts) => commit(saveDraft(current(), { hideFromContacts }))} label="Hide me from all my contacts" hint="On by default. People you allow can still see you." />
         <Toggle on={state.discreet} onChange={(discreet) => commit(setDiscreet(current(), discreet))} label="Discreet mode" hint="The title becomes Notes, and names blur in rooms." />
@@ -303,6 +420,15 @@ export function Settings() {
             </Button>
           </div>
         </Card>
+        <div className="space-y-2">
+          <p className="text-sm text-mute">Policies</p>
+          {POLICY_PAGES.map((page) => (
+            <button key={page.path} type="button" onClick={() => navigate(page.path)} className="flex min-h-11 w-full items-center rounded-2xl border border-line px-4 text-left">
+              {page.label}
+              <ChevronRight size={16} className="ml-auto text-mute" />
+            </button>
+          ))}
+        </div>
         <Button variant="ghost" onClick={() => { void logout(current()).then((next) => { commit(next); navigate(isLive() ? "/login" : "/"); }); }}>
           Log out
         </Button>
@@ -379,7 +505,8 @@ export function Welcome() {
         <Button variant="ghost" onClick={() => { commit(enterPreview()); navigate("/drop"); }}>
           Look around first
         </Button>
-        <p className="text-center text-xs text-mute">By continuing you agree to the community rules and privacy notice.</p>
+        <p className="text-center text-xs text-mute">By continuing you agree to the terms, safety policy, and privacy notice.</p>
+        <PolicyLinks />
       </div>
     </div>
   );
