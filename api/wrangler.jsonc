@@ -1,0 +1,14 @@
+{
+  "name": "closer-api",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-03-10",
+  "workers_dev": true,
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "closer",
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "migrations"
+    }
+  ]
+}
