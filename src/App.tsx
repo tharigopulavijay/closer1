@@ -37,6 +37,11 @@ function RequireReady({ children }: { children: React.ReactNode }) {
   return children;
 }
 
+/** Preview-only screens (multiplayer with sample people, Saathi) are closed in the live app. */
+function PreviewOnly({ children }: { children: React.ReactNode }) {
+  return isLive() ? <Navigate to="/drop" replace /> : children;
+}
+
 function PhoneLayout() {
   return (
     <Phone>
@@ -76,10 +81,10 @@ export function App() {
         <Route path="/rooms/:id" element={<RequireReady><LiveRoom /></RequireReady>} />
         <Route path="/play" element={<RequireReady><PlayLobby /></RequireReady>} />
         <Route path="/play/ludo" element={<RequireReady><LudoScreen /></RequireReady>} />
-        <Route path="/play/this-or-that" element={<RequireReady><ThisOrThat /></RequireReady>} />
+        <Route path="/play/this-or-that" element={<RequireReady><PreviewOnly><ThisOrThat /></PreviewOnly></RequireReady>} />
         <Route path="/play/quiz" element={<RequireReady><Quiz /></RequireReady>} />
-        <Route path="/play/housie" element={<RequireReady><Housie /></RequireReady>} />
-        <Route path="/play/antakshari" element={<RequireReady><Antakshari /></RequireReady>} />
+        <Route path="/play/housie" element={<RequireReady><PreviewOnly><Housie /></PreviewOnly></RequireReady>} />
+        <Route path="/play/antakshari" element={<RequireReady><PreviewOnly><Antakshari /></PreviewOnly></RequireReady>} />
         <Route path="/plans" element={<RequireReady><PlansHome /></RequireReady>} />
         <Route path="/plans/:id" element={<RequireReady><PlanDetail /></RequireReady>} />
         <Route path="/plans/:id/chat" element={<RequireReady><PlanChat /></RequireReady>} />
@@ -89,7 +94,7 @@ export function App() {
         <Route path="/you/preferences" element={<RequireReady><PreferencesEdit /></RequireReady>} />
         <Route path="/you/plus" element={<RequireReady><Plus /></RequireReady>} />
         <Route path="/you/gift" element={<RequireReady><GiftClaim /></RequireReady>} />
-        <Route path="/you/saathi" element={<RequireReady><Saathi /></RequireReady>} />
+        <Route path="/you/saathi" element={<RequireReady><PreviewOnly><Saathi /></PreviewOnly></RequireReady>} />
         <Route path="/you/settings" element={<RequireReady><Settings /></RequireReady>} />
         <Route path="/you/licences" element={<RequireReady><Licences /></RequireReady>} />
         <Route path="/safety" element={<RequireReady><SafetyHome /></RequireReady>} />

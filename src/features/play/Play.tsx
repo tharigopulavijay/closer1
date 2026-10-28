@@ -1,6 +1,7 @@
 import { Dice5, HelpCircle, Music, Ticket as TicketIcon, Users } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { isLive } from "../../lib/env";
 import { ANTAKSHARI_LETTERS, QUIZ, THIS_OR_THAT } from "../../mocks/catalog";
 import { PEOPLE, personById } from "../../mocks/people";
 import { addFriend, finishGame } from "../../state/logic";
@@ -20,48 +21,73 @@ export function PlayLobby() {
     ["/play/housie", "Housie", "One ticket, the room calls", "210 playing", TicketIcon],
     ["/play/antakshari", "Antakshari", "A letter, 20 seconds, honour", "36 playing", Music],
   ] as const;
+  // Live games are solo until the multiplayer server exists: no invented players, counts or partners.
+  const live = isLive();
+  const shown = live
+    ? ([
+        ["/play/ludo", "Ludo", "You against the computer · four colours", "", Dice5],
+        ["/play/quiz", "Tollywood quiz", "Ten questions · a timer", "", HelpCircle],
+      ] as const)
+    : games;
   return (
     <Screen tab>
       <Headline text="Play, then talk" italic="talk" />
       <p className="mt-3 text-sm text-mute">No money on the table. A finished game can keep today's streak.</p>
       <div className="mt-5 space-y-3">
-        {games.map(([path, title, copy, count, Icon]) => (
+        {shown.map(([path, title, copy, count, Icon]) => (
           <button key={path} type="button" onClick={() => navigate(path)} className="flex min-h-11 w-full items-center gap-3 rounded-3xl border border-line bg-card p-4 text-left">
             <span className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-gold/15 text-gold"><Icon size={18} /></span>
             <span className="min-w-0 flex-1">
               <span className="block font-semibold">{title}</span>
               <span className="mt-1 block text-sm text-mute">{copy}</span>
-              <span className="mt-2 block text-xs text-gold">{count}</span>
+              {count ? <span className="mt-2 block text-xs text-gold">{count}</span> : null}
             </span>
           </button>
         ))}
       </div>
-      <Card className="mt-5">
+      {live ? (
+        <Card className="mt-5">
+          <p className="text-xs uppercase tracking-[0.16em] text-gold">Coming next</p>
+          <p className="mt-2 font-medium">This or That, Housie and Antakshari with real people.</p>
+          <p className="text-sm text-mute">They open here once live multiplayer is switched on.</p>
+        </Card>
+      ) : <Card className="mt-5">
         <p className="text-xs uppercase tracking-[0.16em] text-gold">Sunday board</p>
         <p className="mt-2 font-medium">Housie tonight is hosted at Chaiholic.</p>
         <p className="text-sm text-mute">The game is free. This note stays on Play, never in a date chat.</p>
-      </Card>
+      </Card>}
     </Screen>
   );
+}
+
+/** A finished game keeps today's streak: on the server when live, in the preview state otherwise. */
+function useFinishGame() {
+  const { current, commit } = useStore();
+  return () => {
+    if (isLive()) void recordStreak(current(), "play").then(commit);
+    else commit(finishGame(current()));
+  };
 }
 
 function AfterGame({
   onFriend,
   onLike,
   showLike,
+  solo = false,
 }: {
   onFriend: () => void;
   onLike: () => void;
   showLike: boolean;
+  solo?: boolean;
 }) {
   return (
     <Card className="mt-4">
       <Headline text="That's the game" italic="game" className="!text-4xl" />
       <p className="mt-1 text-sm text-mute">Streak day is kept once, on the server, if today wasn't already counted.</p>
-      <div className="mt-3 space-y-2">
+      {solo ? null : <div className="mt-3 space-y-2">
         <Button variant="ghost" onClick={onFriend}>Add friend</Button>
         {showLike ? <Button onClick={onLike}>Send a like</Button> : null}
-      </div>
+      </div>}
     </Card>
   );
 }
@@ -70,7 +96,8 @@ export function LudoScreen() {
   const [state, setState] = useState<LudoState>(() => createLudo(4));
   const { state: app, current, commit } = useStore();
   const [done, setDone] = useState(false);
-  const names = ["You", "Meher", "Karthik", "Saanvi"];
+  const names = isLive() ? ["You", "Computer", "Computer", "Computer"] : ["You", "Meher", "Karthik", "Saanvi"];
+  const finish = useFinishGame();
   useEffect(() => {
     if (state.winner != null || state.current === 0) return undefined;
     const timer = window.setTimeout(() => {
@@ -86,9 +113,9 @@ export function LudoScreen() {
   useEffect(() => {
     if (state.winner != null && !done) {
       setDone(true);
-      commit(finishGame(current()));
+      finish();
     }
-  }, [state.winner, done, commit, current]);
+  }, [state.winner, done, finish]);
   const cells = Array.from({ length: 15 }, (_, row) =>
     Array.from({ length: 15 }, (_, col) => {
       const home = COLOURS.findIndex((_, colour) => HOME_HAS(colour, row, col));
@@ -155,6 +182,7 @@ export function LudoScreen() {
       </div>
       {done ? (
         <AfterGame
+          solo={isLive()}
           showLike={app.draft.intent !== "friends"}
           onFriend={() => commit(addFriend(current(), "meher"))}
           onLike={() => {
@@ -281,13 +309,20 @@ export function Quiz() {
     }, 1000);
     return () => window.clearInterval(timer);
   }, [done]);
+  const finish = useFinishGame();
+  const counted = useRef(false);
   useEffect(() => {
-    if (done) commit(finishGame(current()));
-  }, [done, commit, current]);
+    if (!done || counted.current) return;
+    counted.current = true;
+    finish();
+  }, [done, finish]);
   if (!question || done) {
     return (
       <Screen title="Quiz" back="/play">
         <h2 className="font-serif text-5xl">{score} / {QUIZ.length}</h2>
+        {isLive() ? (
+          <p className="mt-4 text-sm text-mute">Your score is yours alone. A weekly city board comes with live multiplayer.</p>
+        ) : <>
         <Card className="mt-4">
           <p className="text-sm text-mute">Sample week in Hyderabad</p>
           <p className="mt-2">Saanvi · 9</p>
@@ -295,6 +330,7 @@ export function Quiz() {
           <p>You · {score}</p>
         </Card>
         <AfterGame showLike={false} onFriend={() => commit(addFriend(current(), "saanvi"))} onLike={() => undefined} />
+        </>}
       </Screen>
     );
   }

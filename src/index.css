@@ -34,6 +34,15 @@ textarea {
   font-family: inherit;
 }
 
+/* iPhone zooms the page into any field under 16px and doesn't zoom back out. */
+@media (pointer: coarse) {
+  input,
+  textarea,
+  select {
+    font-size: max(16px, 1em);
+  }
+}
+
 ::selection {
   background: #ffb547;
   color: #160e1f;

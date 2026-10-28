@@ -175,7 +175,8 @@ export function DropHome() {
             </Card>
           ) : null}
         </div>
-        <button
+        {/* Tables of 6 are not booked by the server yet, so the live app does not offer a seat. */}
+        {isLive() ? null : <button
           type="button"
           disabled={state.tableSeat}
           onClick={() => commit(joinTable(current()))}
@@ -189,7 +190,7 @@ export function DropHome() {
           <span className="grid h-11 w-11 place-items-center rounded-full bg-ink text-gold">
             <ChevronRight size={16} />
           </span>
-        </button>
+        </button>}
       </div>
     </Screen>
   );

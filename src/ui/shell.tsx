@@ -97,7 +97,7 @@ export function TabBar() {
   const { state } = useStore();
   const open = state.plans.filter((plan) => plan.status === "upcoming").length;
   return (
-    <nav className="grid h-16 shrink-0 grid-cols-5 border-t border-line/70 bg-ink/95 px-1 backdrop-blur-lg pb-[max(4px,env(safe-area-inset-bottom))]">
+    <nav className="grid h-[calc(4rem+env(safe-area-inset-bottom))] shrink-0 grid-cols-5 border-t border-line/70 bg-ink/95 px-1 backdrop-blur-lg pb-[max(4px,env(safe-area-inset-bottom))]">
       {TABS.map((tab) => {
         const Icon = tab.icon;
         const isActive = tabIsOn(pathname, tab.to);
