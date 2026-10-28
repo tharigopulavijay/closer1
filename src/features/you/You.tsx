@@ -178,7 +178,7 @@ export function YouHome() {
         <div>
           <h2 className="font-serif text-4xl">{state.discreet ? "Notes" : state.draft.name || "You"}</h2>
           <p className="text-sm text-mute">{age ? `${age} · ${area}` : area}</p>
-          <p className="text-sm text-mint">{state.draft.selfieDone ? "Verified on this phone" : "Verification pending"}</p>
+          <p className="text-sm text-mint">{isLive() ? "Verified by the Closer team" : state.draft.selfieDone ? "Verified on this phone" : "Verification pending"}</p>
         </div>
       </div>
       <div className="mt-5 grid grid-cols-3 gap-2">
@@ -210,18 +210,18 @@ export function YouHome() {
         <Sparkles size={18} className="text-gold" />
         <span className="min-w-0 flex-1">
           <span className="block font-semibold">Closer+</span>
-          <span className="block text-sm text-mute">{state.plus ? "On in this preview" : "Four plans, an extra freeze, ₹299"}</span>
+          <span className="block text-sm text-mute">{isLive() ? "Coming soon" : state.plus ? "On in this preview" : "Four plans, an extra freeze, ₹299"}</span>
         </span>
         <ChevronRight size={18} className="text-mute" />
       </button>
-      <button type="button" onClick={() => navigate("/you/saathi")} className="mt-2 flex min-h-11 w-full items-center gap-3 rounded-3xl border border-line bg-card px-4 py-3 text-left">
+      {isLive() ? null : <button type="button" onClick={() => navigate("/you/saathi")} className="mt-2 flex min-h-11 w-full items-center gap-3 rounded-3xl border border-line bg-card px-4 py-3 text-left">
         <span className="rounded-full bg-lilac/20 px-2 py-1 text-[10px] font-semibold text-lilac">AI</span>
         <span className="min-w-0 flex-1">
           <span className="block font-semibold">Saathi</span>
           <span className="block text-sm text-mute">An AI companion. Not a person on Closer.</span>
         </span>
         <ChevronRight size={18} className="text-mute" />
-      </button>
+      </button>}
       <div className="mt-3 space-y-2">
         <button type="button" onClick={() => navigate("/safety")} className="flex min-h-11 w-full items-center gap-3 rounded-2xl border border-line px-4 text-left">
           <Shield size={16} className="text-mint" /> Safety <ChevronRight size={16} className="ml-auto text-mute" />
@@ -282,10 +282,15 @@ export function Plus() {
         <li>Twenty Saathi minutes when you subscribe.</li>
       </ul>
       <p className="mt-4 text-sm text-mute">No “see who liked you”. If it isn’t mutual, you aren’t told.</p>
-      <div className="mt-5 space-y-3">
-        <Button onClick={() => commit(purchasePlan(current(), "month"))}>₹299 / month</Button>
-        <Button variant="ghost" onClick={() => commit(purchasePlan(current(), "quarter"))}>₹799 / 3 months</Button>
-      </div>
+      {/* No live charge exists for Closer+ yet, so the live app never pretends to sell it. */}
+      {isLive() ? (
+        <p className="mt-5 rounded-2xl border border-line bg-card px-4 py-3 text-sm">Closer+ opens soon: ₹299 a month or ₹799 for three months.</p>
+      ) : (
+        <div className="mt-5 space-y-3">
+          <Button onClick={() => commit(purchasePlan(current(), "month"))}>₹299 / month</Button>
+          <Button variant="ghost" onClick={() => commit(purchasePlan(current(), "quarter"))}>₹799 / 3 months</Button>
+        </div>
+      )}
       {state.plus ? <p className="mt-4 text-sm text-mint">Closer+ is on in this preview. A real charge needs Razorpay.</p> : null}
     </Screen>
   );
@@ -482,8 +487,10 @@ export function Welcome() {
       </Screen>
     );
   }
+  // Welcome sits outside <Screen>, so it brings its own scroll area: on a short phone the frame would clip it.
   return (
-    <div className="flex flex-1 flex-col bg-ink px-4 pb-8 pt-5">
+    <main className="min-h-0 flex-1 overflow-y-auto">
+    <div className="flex min-h-full flex-col bg-ink px-4 pb-[max(2rem,env(safe-area-inset-bottom))] pt-[max(1.25rem,env(safe-area-inset-top))]">
       <div className="flex items-center justify-between">
         <span className="font-serif text-[28px] italic leading-none">closer</span>
         <span className="rounded-full border border-line bg-card px-3 py-1.5 text-xs text-mute">Hyderabad · 18+</span>
@@ -491,7 +498,7 @@ export function Welcome() {
       <div className="relative mt-4 overflow-hidden rounded-[28px] border border-line bg-card">
         <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_70%_30%,rgba(255,181,71,0.2),transparent_40%),linear-gradient(180deg,#2A1840,#160E1F)]" />
         <CityMark className="absolute right-3 top-3 h-16 w-24 text-gold" />
-        {isLive() ? <div className="relative h-36" /> : (
+        {isLive() ? <DropHero /> : (
           <div className="relative flex items-end gap-2 px-4 pb-4 pt-28">
             <img src={SAMPLE_FACES.sameera} alt="" className="h-28 w-20 rounded-2xl object-cover" />
             <img src={SAMPLE_FACES.ananya} alt="" className="h-36 w-28 rounded-2xl object-cover" />
@@ -516,12 +523,36 @@ export function Welcome() {
         <Button onClick={() => navigate(isLive() ? "/login" : state.draft.phone ? `/onboarding/${state.draft.step || "phone"}` : "/onboarding/phone")}>
           Get started
         </Button>
-        <Button variant="ghost" onClick={() => { commit(enterPreview()); navigate("/drop"); }}>
-          Look around first
-        </Button>
+        {isLive() ? null : (
+          <Button variant="ghost" onClick={() => { commit(enterPreview()); navigate("/drop"); }}>
+            Look around first
+          </Button>
+        )}
         <p className="text-center text-xs text-mute">By continuing you agree to the terms, safety policy, and privacy notice.</p>
         <PolicyLinks />
       </div>
+    </div>
+    </main>
+  );
+}
+
+/** Three face-down Drop cards: the live app never shows a stranger's face before sign-in. */
+function DropHero() {
+  return (
+    <div className="relative flex items-end justify-center gap-2 px-4 pb-4 pt-28" aria-hidden>
+      {[
+        ["-rotate-6 mt-6 h-28 w-20", "#C9A7FF"],
+        ["h-36 w-28", "#FFB547"],
+        ["rotate-6 mt-6 h-28 w-20", "#9FD7C7"],
+      ].map(([size, tint]) => (
+        <div key={tint} className={`relative overflow-hidden rounded-2xl border border-line bg-[#241830] ${size}`}>
+          <svg viewBox="0 0 80 112" className="absolute inset-0 h-full w-full" preserveAspectRatio="xMidYMax slice">
+            <circle cx="40" cy="44" r="16" fill={tint} opacity="0.35" />
+            <path d="M10 112c2-26 14-40 30-40s28 14 30 40z" fill={tint} opacity="0.25" />
+          </svg>
+          <span className="absolute inset-x-0 bottom-2 text-center text-[10px] font-semibold tracking-[0.14em] text-cream/70">9 PM</span>
+        </div>
+      ))}
     </div>
   );
 }
